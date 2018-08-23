@@ -177,11 +177,11 @@ def zipper(filename, filelist, dir = os.getcwd(), compression = 'bz2'):
         zf.write(file,compress_type=zMODE)
         print("{} added to {}.{}".format(file, filename, compression))
 #*********************************************************************************************#
-def bad_data_writer(spot_to_scan, scan, vcount_dir):
+def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir):
     spot_scan_str = '{}.{}'.format(spot_to_scan, scan)
     marker_dict[spot_scan_str] = (0,0)
 
-    scan_data = [chip_name, vpipes.three_digs(spot_to_scan), vpipes.three_digs(scan)]
+    scan_data = [chip_name, three_digs(spot_to_scan), three_digs(scan)]
 
     bad_scan = '{0}.{1}.{2}'.format(*scan_data)
     shape_df_cols = [ 'label_bin',	'coords',	'centroid_bin',	'area',
@@ -199,11 +199,12 @@ def bad_data_writer(spot_to_scan, scan, vcount_dir):
                          'image_shift_RC'  : 'N/A',
                          'overlay_mode'    : 'N/A',
                          'particle_count'  : 0,
-                         'filo_count'      : 0,
+                         'exo_toggle'      : False,
+
                          'spot_coords_xyr' : 'N/A',
                          'marker_coords_RC': 'N/A',
                          'valid'           : False,
-                         'VIRAGO_version'  : version
+                         'VIRAGO_version'  : 'N/A'
     }
     with open('{}/{}.vdata.txt'.format(vcount_dir,bad_scan),'w') as f:
         for k,v in missing_vdata_dict.items():

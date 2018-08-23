@@ -72,167 +72,167 @@ def _circle_particles(particle_df, axes, exo_toggle):
     plt.yticks(size = 10, color = 'w')
     plt.ylabel("PARTICLE COUNT", color = 'w')
 #*********************************************************************************************#
-def processed_image_viewer(image, particle_df, spot_coords, res, chip_name,
-                            filo_df = pd.DataFrame([]),
-                            cmap = 'gray', dpi = 96, markers = [],
-                            im_name = "",
-                            show_particles = True, show_fibers = False,
-                            show_filaments = False, exo_toggle = False,
-                            show_markers = True, show_info = False,
-                            show_image = False, scale = 15,
-                            crosshairs = False, invert = False):
-    """Generates a full-resolution PNG image after, highlighting features, showing counted particles,
-    and a particle contrast histogram"""
-    nrows, ncols = image.shape
-    cx,cy,rad = spot_coords
-    true_radius = round((rad - 20) / res,2)
-    figsize = (ncols/dpi, nrows/dpi)
-    fig = plt.figure(figsize = figsize, dpi = dpi)
-    axes = plt.Axes(fig,[0,0,1,1])
-    fig.add_axes(axes)
-    axes.set_axis_off()
-    if invert == True:
-        image = util.invert(image)
-    axes.imshow(image, cmap = cmap)
-
-    ab_spot = plt.Circle((cx, cy), rad, color='#5A81BB',
-                  linewidth=5, fill=False, alpha = 0.5)
-    axes.add_patch(ab_spot)
-    if show_info == True:
-        scalebar_len_pix = res * scale
-        scalebar_len = scalebar_len_pix / ncols
-        scalebar_xcoords = ((0.98 - scalebar_len), 0.98)
-        scale_text_xloc = np.mean(scalebar_xcoords) * ncols
-        plt.axhline(y=100, xmin=scalebar_xcoords[0], xmax=scalebar_xcoords[1],
-                    linewidth = 8, color = "red")
-        plt.text(y = 85, x = scale_text_xloc, s = (str(scale)+ " " + r'$\mu$' + "m"),
-                 color = 'red', fontsize = '20', horizontalalignment = 'center')
-        plt.text(y = 120, x = scalebar_xcoords[0] * ncols, s = im_name,
-                 color = 'red', fontsize = '10', horizontalalignment = 'left')
-        plt.text(y = 140, x = scalebar_xcoords[0] * ncols, s = "Radius = " + str(true_radius)+ " " + r'$\mu$' + "m",
-                 color = 'red', fontsize = '10', horizontalalignment = 'left')
-
-    if show_particles == True:
-         _circle_particles(particle_df, axes, exo_toggle)
-    if show_fibers == True:
-        def fiber_points(particle_df, axes):
-            for v1 in particle_df.vertex1:
-                v1point = plt.Circle((v1[1], v1[0]), 0.5,
-                                      color = 'red', linewidth = 0,
-                                      fill = True, alpha = 1)
-                axes.add_patch(v1point)
-            for v2 in particle_df.vertex2:
-                v2point = plt.Circle((v2[1], v2[0]), 0.5,
-                                      color = 'm', linewidth = 0,
-                                      fill = True, alpha = 1)
-                axes.add_patch(v2point)
-            # for centroid in particle_df.centroid:
-            #     centpoint = plt.Circle((centroid[1], centroid[0]), 2,
-            #                             color = 'g', fill = False, alpha = 1)
-            #     axes.add_patch(centpoint)
-        fiber_points(particle_df, axes)
-    if (show_filaments == True) & (not filo_df.empty):
-        for v1 in filo_df.vertex1:
-            v1point = plt.Circle((v1[1], v1[0]), 0.5,
-                                  color = 'red', linewidth = 0,
-                                  fill = True, alpha = 1)
-            axes.add_patch(v1point)
-        for v2 in filo_df.vertex2:
-            v2point = plt.Circle((v2[1], v2[0]), 0.5,
-                                  color = 'm', linewidth = 0,
-                                  fill = True, alpha = 1)
-            axes.add_patch(v2point)
-        for box in filo_df.bbox_verts:
-            low_left_xy = (box[3][1]-1, box[3][0]-1)
-            h = box[0][0] - box[2][0]
-            w = box[1][1] - box[0][1]
-            filobox = plt.Rectangle(low_left_xy, w, h, fill = False, ec = 'm', lw = 0.5, alpha = 0.8)
-            axes.add_patch(filobox)
-
-    if show_markers == True:
-        for coords in markers:
-            # mark_cm = plt.scatter(x = coords[1], y=coords[0],s=10, c = 'g',marker='+')
-            mark_box = plt.Rectangle((coords[1]-58,coords[0]-78), 114, 154,
-                                  fill = False, ec = 'green', lw = 1)
-            # axes.add_patch(mark_cm)
-            axes.add_patch(mark_box)
-    if crosshairs == True:
-        plt.axhline(y = cy, color = 'red', linewidth = 3)
-        plt.axvline(x = cx, color = 'red', linewidth = 3)
-
-    plt.savefig('../virago_output/' + chip_name + '/processed_images/' + im_name +'.png', dpi = dpi)
-    print("Processed image generated: " + im_name + ".png")
-    if show_image == True:
-        plt.show()
-    plt.clf(); plt.close('all')
+# def processed_image_viewer(image, particle_df, spot_coords, res, chip_name,
+#                             filo_df = pd.DataFrame([]),
+#                             cmap = 'gray', dpi = 96, markers = [],
+#                             im_name = "",
+#                             show_particles = True, show_fibers = False,
+#                             show_filaments = False, exo_toggle = False,
+#                             show_markers = True, show_info = False,
+#                             show_image = False, scale = 15,
+#                             crosshairs = False, invert = False):
+#     """Generates a full-resolution PNG image after, highlighting features, showing counted particles,
+#     and a particle contrast histogram"""
+#     nrows, ncols = image.shape
+#     cx,cy,rad = spot_coords
+#     true_radius = round((rad - 20) / res,2)
+#     figsize = (ncols/dpi, nrows/dpi)
+#     fig = plt.figure(figsize = figsize, dpi = dpi)
+#     axes = plt.Axes(fig,[0,0,1,1])
+#     fig.add_axes(axes)
+#     axes.set_axis_off()
+#     if invert == True:
+#         image = util.invert(image)
+#     axes.imshow(image, cmap = cmap)
+#
+#     ab_spot = plt.Circle((cx, cy), rad, color='#5A81BB',
+#                   linewidth=5, fill=False, alpha = 0.5)
+#     axes.add_patch(ab_spot)
+#     if show_info == True:
+#         scalebar_len_pix = res * scale
+#         scalebar_len = scalebar_len_pix / ncols
+#         scalebar_xcoords = ((0.98 - scalebar_len), 0.98)
+#         scale_text_xloc = np.mean(scalebar_xcoords) * ncols
+#         plt.axhline(y=100, xmin=scalebar_xcoords[0], xmax=scalebar_xcoords[1],
+#                     linewidth = 8, color = "red")
+#         plt.text(y = 85, x = scale_text_xloc, s = (str(scale)+ " " + r'$\mu$' + "m"),
+#                  color = 'red', fontsize = '20', horizontalalignment = 'center')
+#         plt.text(y = 120, x = scalebar_xcoords[0] * ncols, s = im_name,
+#                  color = 'red', fontsize = '10', horizontalalignment = 'left')
+#         plt.text(y = 140, x = scalebar_xcoords[0] * ncols, s = "Radius = " + str(true_radius)+ " " + r'$\mu$' + "m",
+#                  color = 'red', fontsize = '10', horizontalalignment = 'left')
+#
+#     if show_particles == True:
+#          _circle_particles(particle_df, axes, exo_toggle)
+#     if show_fibers == True:
+#         def fiber_points(particle_df, axes):
+#             for v1 in particle_df.vertex1:
+#                 v1point = plt.Circle((v1[1], v1[0]), 0.5,
+#                                       color = 'red', linewidth = 0,
+#                                       fill = True, alpha = 1)
+#                 axes.add_patch(v1point)
+#             for v2 in particle_df.vertex2:
+#                 v2point = plt.Circle((v2[1], v2[0]), 0.5,
+#                                       color = 'm', linewidth = 0,
+#                                       fill = True, alpha = 1)
+#                 axes.add_patch(v2point)
+#             # for centroid in particle_df.centroid:
+#             #     centpoint = plt.Circle((centroid[1], centroid[0]), 2,
+#             #                             color = 'g', fill = False, alpha = 1)
+#             #     axes.add_patch(centpoint)
+#         fiber_points(particle_df, axes)
+#     if (show_filaments == True) & (not filo_df.empty):
+#         for v1 in filo_df.vertex1:
+#             v1point = plt.Circle((v1[1], v1[0]), 0.5,
+#                                   color = 'red', linewidth = 0,
+#                                   fill = True, alpha = 1)
+#             axes.add_patch(v1point)
+#         for v2 in filo_df.vertex2:
+#             v2point = plt.Circle((v2[1], v2[0]), 0.5,
+#                                   color = 'm', linewidth = 0,
+#                                   fill = True, alpha = 1)
+#             axes.add_patch(v2point)
+#         for box in filo_df.bbox_verts:
+#             low_left_xy = (box[3][1]-1, box[3][0]-1)
+#             h = box[0][0] - box[2][0]
+#             w = box[1][1] - box[0][1]
+#             filobox = plt.Rectangle(low_left_xy, w, h, fill = False, ec = 'm', lw = 0.5, alpha = 0.8)
+#             axes.add_patch(filobox)
+#
+#     if show_markers == True:
+#         for coords in markers:
+#             # mark_cm = plt.scatter(x = coords[1], y=coords[0],s=10, c = 'g',marker='+')
+#             mark_box = plt.Rectangle((coords[1]-58,coords[0]-78), 114, 154,
+#                                   fill = False, ec = 'green', lw = 1)
+#             # axes.add_patch(mark_cm)
+#             axes.add_patch(mark_box)
+#     if crosshairs == True:
+#         plt.axhline(y = cy, color = 'red', linewidth = 3)
+#         plt.axvline(x = cx, color = 'red', linewidth = 3)
+#
+#     plt.savefig('../virago_output/' + chip_name + '/processed_images/' + im_name +'.png', dpi = dpi)
+#     print("Processed image generated: " + im_name + ".png")
+#     if show_image == True:
+#         plt.show()
+#     plt.clf(); plt.close('all')
 #*********************************************************************************************#
-def image_details(fig1, fig2, fig3, pic_edge, chip_name, png, save = False, dpi = 96):
-    """A subroutine for debugging contrast adjustment"""
-    bin_no = 55
-    nrows, ncols = fig1.shape
-    figsize = (ncols/dpi/2, nrows/dpi/2)
-    fig = plt.figure(figsize = figsize, dpi = dpi)
-
-    ax_img = plt.Axes(fig,[0,0,1,1])
-    ax_img.set_axis_off()
-    fig.add_axes(ax_img)
-
-    fig3[pic_edge] = fig3.max()*2
-
-    ax_img.imshow(fig3, cmap = 'gray')
-
-    pic_cdf1, cbins1 = exposure.cumulative_distribution(fig1, bin_no)
-    pic_cdf2, cbins2 = exposure.cumulative_distribution(fig2, bin_no)
-    pic_cdf3, cbins3 = exposure.cumulative_distribution(fig3, bin_no)
-
-    ax_hist1 = plt.axes([.05, .05, .25, .25])
-    ax_cdf1 = ax_hist1.twinx()
-    ax_hist2 = plt.axes([.375, .05, .25, .25])
-    ax_cdf2 = ax_hist2.twinx()
-    ax_hist3 = plt.axes([.7, .05, .25, .25])
-    ax_cdf3 = ax_hist3.twinx()
-
-    # hist1, hbins1 = np.histogram(fig1.ravel(), bins = bin_no)
-    # hist2, hbins2 = np.histogram(fig2.ravel(), bins = bin_no)
-    # hist3, hbins3 = np.histogram(fig3.ravel(), bins = bin_no)
-    fig1r = fig1.ravel(); fig2r = fig2.ravel(); fig3r = fig3.ravel()
-
-    hist1, hbins1, __ = ax_hist1.hist(fig1r, bin_no, facecolor = 'r', normed = True)
-    hist2, hbins2, __ = ax_hist2.hist(fig2r, bin_no, facecolor = 'b', normed = True)
-    hist3, hbins3, __ = ax_hist3.hist(fig3r, bin_no, facecolor = 'g', normed = True)
-    # hist_dist1 = scipy.stats.rv_histogram(hist1)
-
-    ax_hist1.patch.set_alpha(0); ax_hist2.patch.set_alpha(0); ax_hist3.patch.set_alpha(0)
-
-    ax_cdf1.plot(cbins1, pic_cdf1, color = 'w')
-    ax_cdf2.plot(cbins2, pic_cdf2, color = 'c')
-    ax_cdf3.plot(cbins3, pic_cdf3, color = 'y')
-
-    bin_centers2 = 0.5*(hbins2[1:] + hbins2[:-1])
-    m2, s2 = norm.fit(fig2r)
-    pdf2 = norm.pdf(bin_centers2, m2, s2)
-    ax_hist2.plot(bin_centers2, pdf2, color = 'm')
-    mean, var, skew, kurt = gamma.stats(fig2r, moments='mvsk')
-    print(mean, var, skew, kurt)
-
-    ax_hist1.set_title("Normalized", color = 'r')
-    ax_hist2.set_title("CLAHE Equalized", color = 'b')
-    ax_hist3.set_title("Contrast Stretched", color = 'g')
-    ax_hist1.set_ylim([0,max(hist1)])
-    ax_hist3.set_ylim([0,max(hist3)])
-    ax_hist1.set_xlim([np.median(fig1)-0.25,np.median(fig1)+0.25])
-    #ax_cdf1.set_ylim([0,1])
-    ax_hist2.set_xlim([np.median(fig2)-0.5,np.median(fig2)+0.5])
-    ax_hist3.set_xlim([0,1])
-    if save == True:
-        plt.savefig('../virago_output/' + chip_name
-                    + '/processed_images/' + png
-                    + '_image_details.png',
-                    dpi = dpi)
-    plt.show()
-
-    plt.close('all')
-    return hbins2, pic_cdf1
+# def image_details(fig1, fig2, fig3, pic_edge, chip_name, png, save = False, dpi = 96):
+#     """A subroutine for debugging contrast adjustment"""
+#     bin_no = 55
+#     nrows, ncols = fig1.shape
+#     figsize = (ncols/dpi/2, nrows/dpi/2)
+#     fig = plt.figure(figsize = figsize, dpi = dpi)
+#
+#     ax_img = plt.Axes(fig,[0,0,1,1])
+#     ax_img.set_axis_off()
+#     fig.add_axes(ax_img)
+#
+#     fig3[pic_edge] = fig3.max()*2
+#
+#     ax_img.imshow(fig3, cmap = 'gray')
+#
+#     pic_cdf1, cbins1 = exposure.cumulative_distribution(fig1, bin_no)
+#     pic_cdf2, cbins2 = exposure.cumulative_distribution(fig2, bin_no)
+#     pic_cdf3, cbins3 = exposure.cumulative_distribution(fig3, bin_no)
+#
+#     ax_hist1 = plt.axes([.05, .05, .25, .25])
+#     ax_cdf1 = ax_hist1.twinx()
+#     ax_hist2 = plt.axes([.375, .05, .25, .25])
+#     ax_cdf2 = ax_hist2.twinx()
+#     ax_hist3 = plt.axes([.7, .05, .25, .25])
+#     ax_cdf3 = ax_hist3.twinx()
+#
+#     # hist1, hbins1 = np.histogram(fig1.ravel(), bins = bin_no)
+#     # hist2, hbins2 = np.histogram(fig2.ravel(), bins = bin_no)
+#     # hist3, hbins3 = np.histogram(fig3.ravel(), bins = bin_no)
+#     fig1r = fig1.ravel(); fig2r = fig2.ravel(); fig3r = fig3.ravel()
+#
+#     hist1, hbins1, __ = ax_hist1.hist(fig1r, bin_no, facecolor = 'r', normed = True)
+#     hist2, hbins2, __ = ax_hist2.hist(fig2r, bin_no, facecolor = 'b', normed = True)
+#     hist3, hbins3, __ = ax_hist3.hist(fig3r, bin_no, facecolor = 'g', normed = True)
+#     # hist_dist1 = scipy.stats.rv_histogram(hist1)
+#
+#     ax_hist1.patch.set_alpha(0); ax_hist2.patch.set_alpha(0); ax_hist3.patch.set_alpha(0)
+#
+#     ax_cdf1.plot(cbins1, pic_cdf1, color = 'w')
+#     ax_cdf2.plot(cbins2, pic_cdf2, color = 'c')
+#     ax_cdf3.plot(cbins3, pic_cdf3, color = 'y')
+#
+#     bin_centers2 = 0.5*(hbins2[1:] + hbins2[:-1])
+#     m2, s2 = norm.fit(fig2r)
+#     pdf2 = norm.pdf(bin_centers2, m2, s2)
+#     ax_hist2.plot(bin_centers2, pdf2, color = 'm')
+#     mean, var, skew, kurt = gamma.stats(fig2r, moments='mvsk')
+#     print(mean, var, skew, kurt)
+#
+#     ax_hist1.set_title("Normalized", color = 'r')
+#     ax_hist2.set_title("CLAHE Equalized", color = 'b')
+#     ax_hist3.set_title("Contrast Stretched", color = 'g')
+#     ax_hist1.set_ylim([0,max(hist1)])
+#     ax_hist3.set_ylim([0,max(hist3)])
+#     ax_hist1.set_xlim([np.median(fig1)-0.25,np.median(fig1)+0.25])
+#     #ax_cdf1.set_ylim([0,1])
+#     ax_hist2.set_xlim([np.median(fig2)-0.5,np.median(fig2)+0.5])
+#     ax_hist3.set_xlim([0,1])
+#     if save == True:
+#         plt.savefig('../virago_output/' + chip_name
+#                     + '/processed_images/' + png
+#                     + '_image_details.png',
+#                     dpi = dpi)
+#     plt.show()
+#
+#     plt.close('all')
+#     return hbins2, pic_cdf1
 #*********************************************************************************************#
 def gen_particle_image(pic_to_show, shape_df, spot_coords, pix_per_um, cv_cutoff,
                        show_particles=True, scalebar = 0, markers = []):
@@ -353,111 +353,111 @@ def histogrammer(particle_dict, spot_counter, cont_window, baselined = True):
     else:
         return baseline_histogram_df
 #*********************************************************************************************#
-def histogram_averager(histogram_df, mAb_dict_rev, pass_counter, smooth = False, sm_window = 7):
-    """Returns an DataFrame representing the average histogram of all spots of the same type."""
-    mean_histo_df = histogram_df[['bins']]
-    # smooth_histo_df = mean_histo_df.copy()
-    for key in mAb_dict_rev:
-        mAb_split_df, mean_spot_df, smooth_spot_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-        for col in histogram_df:
-            if str(col).replace('_','').isdigit():
-                spot_num = int(col.split("_")[0])
-                if spot_num in mAb_dict_rev[key]:
-                    mAb_split_df = pd.concat((mAb_split_df,histogram_df[col]), axis = 1)
-                    named_col = key+'_'+str(col)
-                    histogram_df.rename({col:named_col}, axis='columns', inplace=True)
+def sum_histogram(raw_histogram_df, spot_counter, pass_counter):
+    sum_histogram_df = raw_histogram_df.pop('bins')
+    scan1_cols = [col for col in raw_histogram_df.columns if int(col.split('_')[1]) == 1]
+    raw_histogram_df.drop(scan1_cols, axis=1, inplace=True)
 
-        for i in range(1,pass_counter+1):
-            pass_df = pd.DataFrame()
-            for col in mAb_split_df:
-                pass_num = int(col.split("_")[1])
-                if pass_num == i:
-                    pass_df = pd.concat((pass_df, mAb_split_df[col]), axis = 1)
-            # print(pass_df)
-            new_name = key +'_'+ str(i)
-            mean_pass_df = (pass_df.mean(axis = 1)).rename(new_name)
-                # print(col)
-                    # print(mean_pass_df)
-                    # print(col)
-            mean_spot_df = pd.concat((mean_spot_df, mean_pass_df), axis = 1)
-
-            if smooth == True:
-                smooth_pass_df = mean_pass_df.rolling(window = sm_window,
-                                                      center = True).mean().rename('sm-'+new_name)
-                smooth_spot_df = pd.concat((smooth_spot_df, smooth_pass_df), axis = 1)
-                        # def smoothing(mean_pass_df, val = 5):
-                        #     smooth_pass_list = []
-                        #     for x in range(val, len(mean_pass_df) - val-1):
-                        #         print(x)
-                        #         smooth_val = np.mean(mean_pass_df[x-val:x+val+1])
-                        #         smooth_pass_list.append(smooth_val)
-
-                # print(mean_spot_df)
-        mean_histo_df = pd.concat((mean_histo_df, mean_spot_df), axis = 1)
-        if smooth == True:
-            mean_histo_df = pd.concat((mean_histo_df, smooth_spot_df), axis = 1)
-
-    return mean_histo_df
+    for x in range(2,pass_counter+1):
+        pass_histogram_df = pd.DataFrame()
+        for col in raw_histogram_df.columns:
+            if int(col.split('_')[1]) <= x:
+                pass_histogram_df = pd.concat([pass_histogram_df, raw_histogram_df[col]], axis=1)
+        for i in range(1,spot_counter+1):
+            cols_to_sum = [col for col in pass_histogram_df if int(col.split('_')[0]) == i]
+            new_name = str(i)+'_'+str(x)
+            sum_histogram_df =  pd.concat([sum_histogram_df,
+                                           pass_histogram_df[cols_to_sum].sum(axis=1).rename(new_name)],
+                                           axis=1
+            )
+    return sum_histogram_df
 #*********************************************************************************************#
-def generate_combo_hist(mean_histo_df, chip_name, pass_counter,
-                        cont_window, cmap, baselined = True, savedir = ''):
-    """Generates a histogram figure for each pass in the IRIS experiment from a DataFrame representing the average data for every spot type"""
+def average_histogram(sum_histogram_df, mAb_dict_rev, pass_counter):
+    avg_histogram_df = sum_histogram_df['bins']
+    for x in range(2,pass_counter+1):
+        pass_histogram_df = pd.DataFrame()
+        for col in sum_histogram_df.columns[1:]:
+            if int(col.split('_')[1]) == x:
+                pass_histogram_df = pd.concat([pass_histogram_df, sum_histogram_df[col]], axis=1)
+        for key in mAb_dict_rev:
+            cols_to_avg = [col for col in pass_histogram_df
+                               if int(col.split('_')[0])
+                               in mAb_dict_rev[key]
+            ]
+            new_name = key+'_'+str(x)
+            avg_histogram_df = pd.concat([avg_histogram_df,
+                                          sum_histogram_df[cols_to_avg].mean(axis=1).rename(new_name)
+                                          ], axis=1
+            )
 
-    cont_str = '{0}-{1}'.format(*cont_window)
-    bin_series = mean_histo_df.pop('bins')
-    smooth_histo_df = mean_histo_df.filter(regex='sm-')
-
-    histo_min = int(np.min(np.min(mean_histo_df)))
-    histo_max = int(np.max(np.max(mean_histo_df)))
-    y_minmod = histo_min % 5
-    y_maxmod = histo_max % 5
-    if y_minmod == 0: y_min = histo_min - 5
-    else: y_min = histo_min - y_minmod
-    if y_maxmod == 0: y_max = histo_max + 5
-    else: y_max = histo_max + y_maxmod
-    if abs(y_max - y_min) < 10: y_grid = 1
-    else: y_grid = int(np.ceil(abs((y_max - y_min) // 10)/5) * 5)
-
-    if pass_counter < 10: passes_to_show = 1
-    else: passes_to_show = pass_counter // 10
-    for i in range(2, pass_counter+1, passes_to_show):
-        sns.set(style='darkgrid')
-        c = 0
-        for col in smooth_histo_df:
-            spot_type = col.split("_")[0]
-            pass_num = int(col.split("_")[-1])
-
-            if pass_num == i:
-
-                plt.plot(bin_series,
-                         smooth_histo_df[col],
-                         linewidth = 2,
-                         color = cmap[c],
-                         alpha = 0.75,
-                         label = spot_type)
-
-
-                c += 1
-            # plt.clf()
-        if baselined == True:
-            plt.title(chip_name+" Pass "+str(i)+" Average Histograms - Baseline Subtracted")
-        else:
-            plt.title(chip_name+" Pass "+str(i)+" Average Histograms")
-        plt.axhline(y=0, ls='dotted', c='black', alpha=0.75)
-        plt.legend(loc = 'best', fontsize = 14)
-        plt.ylabel("Particle Count", size = 14)
-
-        plt.yticks(range(y_min,y_max+5,y_grid), size = 12)
-        plt.xlabel("Percent Contrast", size = 14)
-        if (len(bin_series) >= 100) & (len(bin_series) < 200): x_grid = 10
-        elif len(bin_series) >= 200: x_grid = 20
-        else: x_grid = 5
-        plt.xticks(bin_series[::x_grid], size = 12, rotation = 30)
-
-        figname = ('{}_combohisto_pass_{}_contrast_{}.png'.format(chip_name,i,cont_str))
-        plt.savefig('{}/{}'.format(savedir,figname), bbox_inches = 'tight', dpi = 150)
-        print("File generated: {}".format(figname))
-        plt.clf()
+    for col in avg_histogram_df.columns:
+        if col is not 'bins':
+            avg_histogram_df = pd.concat([avg_histogram_df,
+                                          avg_histogram_df[col].rolling(window = 7,
+                                          center = True).mean().rename(col+'_'+r'$\overline{x}$')
+                                          ], axis=1
+            )
+    return avg_histogram_df
+#*********************************************************************************************#
+# def generate_combo_hist(mean_histo_df, chip_name, pass_counter,
+#                         cont_window, cmap, baselined = True, savedir = ''):
+#     """Generates a histogram figure for each pass in the IRIS experiment from a DataFrame representing the average data for every spot type"""
+#
+#     cont_str = '{0}-{1}'.format(*cont_window)
+#     bin_series = mean_histo_df.pop('bins')
+#     smooth_histo_df = mean_histo_df.filter(regex='sm-')
+#
+#     histo_min = int(np.min(np.min(mean_histo_df)))
+#     histo_max = int(np.max(np.max(mean_histo_df)))
+#     y_minmod = histo_min % 5
+#     y_maxmod = histo_max % 5
+#     if y_minmod == 0: y_min = histo_min - 5
+#     else: y_min = histo_min - y_minmod
+#     if y_maxmod == 0: y_max = histo_max + 5
+#     else: y_max = histo_max + y_maxmod
+#     if abs(y_max - y_min) < 10: y_grid = 1
+#     else: y_grid = int(np.ceil(abs((y_max - y_min) // 10)/5) * 5)
+#
+#     if pass_counter < 10: passes_to_show = 1
+#     else: passes_to_show = pass_counter // 10
+#     for i in range(2, pass_counter+1, passes_to_show):
+#         sns.set(style='darkgrid')
+#         c = 0
+#         for col in smooth_histo_df:
+#             spot_type = col.split("_")[0]
+#             pass_num = int(col.split("_")[-1])
+#
+#             if pass_num == i:
+#
+#                 plt.plot(bin_series,
+#                          smooth_histo_df[col],
+#                          linewidth = 2,
+#                          color = cmap[c],
+#                          alpha = 0.75,
+#                          label = spot_type)
+#
+#
+#                 c += 1
+#             # plt.clf()
+#         if baselined == True:
+#             plt.title(chip_name+" Pass "+str(i)+" Average Histograms - Baseline Subtracted")
+#         else:
+#             plt.title(chip_name+" Pass "+str(i)+" Average Histograms")
+#         plt.axhline(y=0, ls='dotted', c='black', alpha=0.75)
+#         plt.legend(loc = 'best', fontsize = 14)
+#         plt.ylabel("Particle Count", size = 14)
+#
+#         plt.yticks(range(y_min,y_max+5,y_grid), size = 12)
+#         plt.xlabel("Percent Contrast", size = 14)
+#         if (len(bin_series) >= 100) & (len(bin_series) < 200): x_grid = 10
+#         elif len(bin_series) >= 200: x_grid = 20
+#         else: x_grid = 5
+#         plt.xticks(bin_series[::x_grid], size = 12, rotation = 30)
+#
+#         figname = ('{}_combohisto_pass_{}_contrast_{}.png'.format(chip_name,i,cont_str))
+#         plt.savefig('{}/{}'.format(savedir,figname), bbox_inches = 'tight', dpi = 150)
+#         print("File generated: {}".format(figname))
+#         plt.clf()
 #*********************************************************************************************#
 def average_spot_data(spot_df, spot_tuple, pass_counter):
     """Creates a dataframe containing the average data for each antibody spot type"""
@@ -487,63 +487,63 @@ def average_spot_data(spot_df, spot_tuple, pass_counter):
 
     return averaged_df
 #*********************************************************************************************#
-def dict_joy_trans(particle_dict, spot_counter):
-    """generates a dictionary for creating a joyplot-type histogram"""
-    big_df = pd.DataFrame()
-    for key in particle_dict.keys():
-        spot_num = int(key.split(".")[0])
-        pass_num = key.split(".")[1]
-        if spot_num == spot_counter:
-            small_df = pd.DataFrame()
-            small_df['Percent_Contrast'] = particle_dict[key]
-            small_df['scan_ID'] = np.array(['SCAN_' + pass_num] * len(particle_dict[key]))
-            big_df = big_df.append(small_df, ignore_index=True)
-
-    return big_df
+# def dict_joy_trans(particle_dict, spot_counter):
+#     """generates a dictionary for creating a joyplot-type histogram"""
+#     big_df = pd.DataFrame()
+#     for key in particle_dict.keys():
+#         spot_num = int(key.split(".")[0])
+#         pass_num = key.split(".")[1]
+#         if spot_num == spot_counter:
+#             small_df = pd.DataFrame()
+#             small_df['Percent_Contrast'] = particle_dict[key]
+#             small_df['scan_ID'] = np.array(['SCAN_' + pass_num] * len(particle_dict[key]))
+#             big_df = big_df.append(small_df, ignore_index=True)
+#
+#     return big_df
 #*********************************************************************************************#
-def generate_joyplot(joy_df, spot_counter, cont_window, chip_name, savedir =''):
-    """Generates a joyplot-style histogram showing how the peak changes for each scan of a spot"""
-    scans = sorted(list(set(joy_df.scan_ID)), reverse = True)
-
-    num_graphs = len(scans)
-    if num_graphs > 10:
-        scans_to_show = range(1,num_graphs, num_graphs//10)
-    max_contrast = int(cont_window[1])
-    sns.set(style=("white"), rc={"axes.facecolor": (0, 0, 0, 0)})
-    pal = sns.cubehelix_palette(num_graphs, rot=-.25, light=.7)
-    g = sns.FacetGrid(joy_df, row="scan_ID",
-                      hue="scan_ID", aspect=(1.5 * num_graphs), size= (5 / num_graphs),
-                      palette=pal, row_order = scans)
-
-    # Draw the densities in a few steps
-    # g.map(sns.distplot, 'Percent_Contrast',  color = 'b', bins=60, norm_hist = False)
-    g.map(sns.distplot, 'Percent_Contrast', bins=max_contrast*10, norm_hist=False, kde = False,
-        hist_kws={"ec": 'k'},
-        # kde_kws={"bw":0.1}
-        ).set(xlim=(0, max_contrast),xticks=np.arange(0,max_contrast+1,2))
-
-    g.map(plt.axhline, y=0, lw=2, clip_on=False)
-
-    # Define and use a simple function to label the plot in axes coordinates
-    def label(x, color, label):
-        ax = plt.gca()
-        ax.text(0.9, 0.2, label, fontweight="bold", color=color,
-                ha="left", va="center", transform=ax.transAxes)
-
-    g.map(label, 'Percent_Contrast')
-
-    # Set the subplots to overlap
-    g.fig.subplots_adjust(hspace=-.5)
-
-    # Remove axes details that don't play will with overlap
-    g.set_titles("")
-    g.set(yticks=[])
-    g.despine(bottom=True, left=True)
-
-
-    figname = (chip_name+'_series-histogram_spot-'+str(spot_counter)+'.png')
-    g.savefig('{}/{}'.format(savedir,figname), bbox_inches = 'tight', dpi = 150)
-    print("File generated: {}".format(figname))
+# def generate_joyplot(joy_df, spot_counter, cont_window, chip_name, savedir =''):
+#     """Generates a joyplot-style histogram showing how the peak changes for each scan of a spot"""
+#     scans = sorted(list(set(joy_df.scan_ID)), reverse = True)
+#
+#     num_graphs = len(scans)
+#     if num_graphs > 10:
+#         scans_to_show = range(1,num_graphs, num_graphs//10)
+#     max_contrast = int(cont_window[1])
+#     sns.set(style=("white"), rc={"axes.facecolor": (0, 0, 0, 0)})
+#     pal = sns.cubehelix_palette(num_graphs, rot=-.25, light=.7)
+#     g = sns.FacetGrid(joy_df, row="scan_ID",
+#                       hue="scan_ID", aspect=(1.5 * num_graphs), size= (5 / num_graphs),
+#                       palette=pal, row_order = scans)
+#
+#     # Draw the densities in a few steps
+#     # g.map(sns.distplot, 'Percent_Contrast',  color = 'b', bins=60, norm_hist = False)
+#     g.map(sns.distplot, 'Percent_Contrast', bins=max_contrast*10, norm_hist=False, kde = False,
+#         hist_kws={"ec": 'k'},
+#         # kde_kws={"bw":0.1}
+#         ).set(xlim=(0, max_contrast),xticks=np.arange(0,max_contrast+1,2))
+#
+#     g.map(plt.axhline, y=0, lw=2, clip_on=False)
+#
+#     # Define and use a simple function to label the plot in axes coordinates
+#     def label(x, color, label):
+#         ax = plt.gca()
+#         ax.text(0.9, 0.2, label, fontweight="bold", color=color,
+#                 ha="left", va="center", transform=ax.transAxes)
+#
+#     g.map(label, 'Percent_Contrast')
+#
+#     # Set the subplots to overlap
+#     g.fig.subplots_adjust(hspace=-.5)
+#
+#     # Remove axes details that don't play will with overlap
+#     g.set_titles("")
+#     g.set(yticks=[])
+#     g.despine(bottom=True, left=True)
+#
+#
+#     figname = (chip_name+'_series-histogram_spot-'+str(spot_counter)+'.png')
+#     g.savefig('{}/{}'.format(savedir,figname), bbox_inches = 'tight', dpi = 150)
+#     print("File generated: {}".format(figname))
 #*********************************************************************************************#
 def generate_timeseries(spot_df, averaged_df, mAb_dict, spot_tuple,
                          chip_name, sample_name, vhf_colormap, cont_window, version,
@@ -589,6 +589,7 @@ def generate_timeseries(spot_df, averaged_df, mAb_dict, spot_tuple,
     ax2.legend(loc = 'upper left', fontsize = 12, ncol = 1)
     if max(spot_df.scan_number) < 10: x_grid = 1
     else: x_grid = max(spot_df.scan_number) // 10
+
     if scan_or_time == 'scan':
         plt.xlabel("Scan Number", size = 14)
         plt.xticks(np.arange(1, max(spot_df.scan_number) + 1, x_grid), size = 12, rotation = 30)

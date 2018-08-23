@@ -20,7 +20,7 @@ import glob, os, warnings, sys
 pd.set_option('display.width', 1000)
 pd.options.display.max_rows = 999
 logo.print_logo()
-version = '2.7.4'
+version = '2.7.6'
 print("VERSION {}".format(version))
 #*********************************************************************************************#
 #
@@ -180,7 +180,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
             missing_csvs = scan_set.difference(scans_counted)
 
             for scan in missing_csvs:
-                vpipes.bad_data_writer(spot_to_scan, scan, vcount_dir)
+                vpipes.bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir)
 
         whole_spot_df = pd.DataFrame()
         cum_mean_shift = (0,0)
@@ -241,20 +241,36 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
 
-            if zslice_count > 1: focal_plane = int(np.floor(zslice_count/2))
+            if zslice_count > 1: focal_plane = int(np.floor(zslice_count/2)) + 1
             else: focal_plane = 0
 
-            # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
-            # teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D_center]
-            # teng_vals_norm = [val/sum(teng_vals) for val in teng_vals]
-            # laplace_vals = [laplace(pic,3).var() for pic in pic3D_center]
-            # laplace_vals_norm = [val/sum(laplace_vals) for val in laplace_vals]
-            # plt.plot(teng_vals_norm)
-            # plt.plot(laplace_vals_norm)
-            # plt.show()
-            # plt.clf()
-            # print(teng_vals)
-            # print(laplace_vals)
+            # def find_focus(pic3D):
+            #     z, nrows, ncols = pic3D.shape
+            #     # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
+            #     teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D]
+            #     teng_vals_norm = [val/sum(teng_vals) for val in teng_vals]
+            #     laplace_vals = [laplace(pic,3).var() for pic in pic3D]
+            #     laplace_vals_norm = [val/sum(laplace_vals) for val in laplace_vals]
+            #     teng_diff = list(np.diff(teng_vals))
+            #     laplace_diff = list(np.diff(laplace_vals))
+            #     # teng_sign = []
+            #     # for val in teng_diff:
+            #     #     if val < 0:
+            #     #         teng_sign.append('Neg')
+            #     #     elif val > 0:
+            #     #         teng_sign.append('Pos')
+            #     #     else:
+            #     #         teng_sign.append(None)
+            #     print(teng_sign)
+            #     print(teng_diff.index(min(teng_diff))+1)
+            #     print(laplace_diff.index(min(laplace_diff))+1)
+            #     plt.plot(teng_vals_norm)
+            #     plt.plot(laplace_vals_norm)
+            #     plt.show()
+            #     plt.clf()
+
+            # find_focus(pic3D_rescale)
+
             pic_rescale_focus = pic3D_rescale[focal_plane]
             print("Best focused image in stack: {}\n".format(vpipes.three_digs(focal_plane + 1)))
 
@@ -612,13 +628,14 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
             # filo_ct = len(valid_shape_df[shape_df.filo_score > 0.2])
-            total_particles = len(valid_shape_df)
+            total_particles = len(valid_shape_df.perc_contrast)
             # try: perc_fil = round((filo_ct / (filo_ct + total_particles))*100,2)
             # except ZeroDivisionError: perc_fil=0
 
             print("Total valid particles counted in {}: {}\n".format(img_name, total_particles))
             print("""
-                     #*********************************************************************************************#
+                     #**********************************************
+                     ***********************************************#
             """)
             # print("Filaments counted: {}".format(filo_ct))
             # print("Percent filaments: {}\n".format(perc_fil))
@@ -645,17 +662,10 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
 
-            shape_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, img_name))
+            # shape_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, img_name))
 
             whole_spot_df = pd.concat([whole_spot_df, shape_df], axis = 0)
             whole_spot_df.reset_index(drop=True, inplace=True)
-
-
-
-
-
-
-
 
 
             vdata_dict= {'image_name'      : img_name,
@@ -665,7 +675,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
                          'overlay_mode'    : overlay_mode,
                          'total_particles' : total_particles,
                          'focal_plane'     : focal_plane,
-                         # 'filo_count'      : filo_ct,
+                         'exo_toggle'      : exo_toggle,
                          'spot_coords_xyr' : spot_coords,
                          'marker_coords_RC': marker_locs,
                          'valid'           : validity,
@@ -681,14 +691,14 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 #---------------------------------------------------------------------------------------------#
         ####Processed Image Renderer
-            pic_to_show = pic_maxmin
+            pic_to_show = pic_rescale_focus
 
             vgraph.gen_particle_image(pic_to_show,whole_spot_df,spot_coords,
                                       pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
                                       show_particles = False, scalebar = 15,
                                       markers = ''
             )
-            plt.savefig('{}/{}.tif'.format(img_dir, img_name), dpi = 96)
+            plt.savefig('{}/{}.png'.format(img_dir, img_name), dpi = 96)
             plt.clf(); plt.close('all')
 #---------------------------------------------------------------------------------------------#
             # particle_df.drop(rounding_cols, axis = 1, inplace = True)
@@ -721,11 +731,10 @@ for file in info_list:
 print("\nData from version {}\n".format(version))
 
 os.chdir(vcount_dir)
-vcount_csv_list = sorted(glob.glob(chip_name +'*.vcount.csv'))
 v2combo_list = sorted(glob.glob(chip_name +'*.v2combined.csv'))
 vdata_list = sorted(glob.glob(chip_name +'*.vdata.txt'))
-total_pgms = len(iris_txt) * pass_counter
-if len(vcount_csv_list) >= total_pgms:
+
+if len(vdata_list) >= (len(iris_txt) * pass_counter):
     cont_window_str = str(input("\nEnter the minimum and maximum percent intensity values,"\
                                 "separated by a dash.\n"))
     while "-" not in cont_window_str:
@@ -733,7 +742,7 @@ if len(vcount_csv_list) >= total_pgms:
     else:
         cont_window = cont_window_str.split("-")
 
-    vdata_dict = vquant.vdata_reader(vdata_list, ['area_sqmm','valid'])
+    vdata_dict = vquant.vdata_reader(vdata_list, ['area_sqmm','valid', 'exo_toggle'])
     # spot_df['filo_counts'] = vdata_dict['filo_counts']
     spot_df['area'] = vdata_dict['area_sqmm']
     spot_df['valid'] = vdata_dict['valid']
@@ -745,100 +754,53 @@ if len(vcount_csv_list) >= total_pgms:
     min_cont = float(cont_window[0])
     max_cont = float(cont_window[1])
 
-    for i, csvfile in enumerate(vcount_csv_list):
-        csv_df = pd.read_csv(csvfile, error_bad_lines = False, header = 0)
-        csv_df = csv_df[(csv_df.perc_contrast > min_cont) & (csv_df.perc_contrast <= max_cont)]
-        particle_counts.append(len(csv_df))
-        filo_counts.append(len(csv_df.filo_score[csv_df.filo_score > 0.2]))
-        irreg_counts.append(len(csv_df.filo_score[(csv_df.filo_score <= 0.2)
-                                                &(csv_df.filo_score > 0.1)])
-        )
-
-        csv_info = csvfile.split(".")
-        csv_id = '{}.{}'.format(csv_info[1],csv_info[2])
-        particle_dict[csv_id] = list(csv_df.perc_contrast)
-
-        print('File scanned: {}; Particles counted: {}'.format(csvfile, particle_counts[i]))
 
     new_particle_count, cum_particle_count = [],[]
     for i, csvfile in enumerate(v2combo_list):
-        combo_df = pd.read_csv(csvfile, error_bad_lines = False, header = 0)
+        combo_df = pd.read_csv(csvfile, error_bad_lines = False,
+                               header = 0, index_col = 0
+        )
         if not combo_df.empty:
             combo_df = combo_df[  (combo_df.perc_contrast > min_cont)
                                 & (combo_df.perc_contrast <= max_cont)
+                                & (combo_df.cv_bg < 0.02)
             ]
             cumulative_particles = 0
             for j in range(1,pass_counter+1):
-
                 scan_df = combo_df[combo_df.pass_number == j]
 
-                particles_per_pass = len(scan_df)
+                csv_id = '{}.{}'.format(csvfile.split(".")[1], vpipes.three_digs(j))
+                particle_dict[csv_id] = list(scan_df.perc_contrast)
+                particles_per_pass = len(particle_dict[csv_id])
+
                 new_particle_count.append(particles_per_pass)
 
                 cumulative_particles += particles_per_pass
                 cum_particle_count.append(cumulative_particles)
 
-            print('File scanned: {}; Cumulative particles counted: {}'.format(csvfile, cumulative_particles))
+                print(  'File scanned: {}; '.format(csvfile)
+                      + 'Scan {}, '.format(j)
+                      + 'Particles accumulated: {}'.format(cumulative_particles)
+                )
         else:
-            print("\nMissing Data\n")
+            print("Missing data for {}\n".format(csvfile))
             new_particle_count = new_particle_count + ([0]*pass_counter)
             cum_particle_count = cum_particle_count + ([0]*pass_counter)
 
 
     spot_df['new_particles'] = new_particle_count
     spot_df['cumulative_particles'] = cum_particle_count
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    spot_df['particle_counts_{0}-{1}'.format(*cont_window)] = particle_counts
-
-
-    # spot_df['filo_counts'] = filo_counts
-    # spot_df['irreg_counts'] = irreg_counts
-
-
-
-
-
-    spot_df['kparticle_density'] = np.round(cum_particle_count / spot_df.area.astype(float)
-                                            * 0.001, 3
+    spot_df['kparticle_density'] = np.round(cum_particle_count
+                                            / spot_df.area.astype(float) * 0.001, 3
     )
 
-    # spot_df.loc[spot_df.new_particles > 2000, 'valid'] = False
     spot_df.loc[spot_df.kparticle_density == 0, 'valid'] = False
 
-    # def density_normalizer(spot_df, spot_counter):
-    #     """Particle count normalizer so pass 1 = 0 particle density"""
-    normalized_density = []
-    for x in range(1, spot_counter + 1):
-        kp_df = spot_df.kparticle_density[(spot_df.spot_number == x)].reset_index(drop=True)
-
-        normalized_density.append([kp_df[i] - kp_df[0] for i in range(0,len(kp_df))])
-
-    normalized_density = [item for sublist in normalized_density for item in sublist]
-    spot_df['normalized_density'] = normalized_density
-    # return normalized_density
-
-
-
-
-
-
+    spot_df['normalized_density'] = vquant.density_normalizer(spot_df, spot_counter)
 
     os.chdir(iris_path)
-elif len(vcount_csv_list) != total_pgms:
+
+elif len(vdata_list) != (len(iris_txt) * pass_counter):
     pgms_remaining = total_pgms - len(vcount_csv_list)
 
 
@@ -856,21 +818,6 @@ vhf_colormap = ('#e41a1c',
                 'black'
 )
 
-# new_cm = [
-#             '#a6cee3',
-#             '#1f78b4',
-#             '#b2df8a',
-#             '#33a02c',
-#             '#fb9a99',
-#             '#e31a1c',
-#             '#fdbf6f',
-#             '#ff7f00',
-#             '#cab2d6',
-#             '#6a3d9a',
-#             '#ffff99',
-#             '#b15928',
-#          ]
-# if float(cont_window[0]) == 0:
 
 #*********************************************************************************************#
 ##HISTOGRAM CODE
@@ -878,48 +825,10 @@ if min_cont == 0:
     raw_histogram_df = vgraph.histogrammer(particle_dict, spot_counter, cont_window, baselined = False)
     raw_histogram_df.to_csv('{}/{}_raw_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
 
-    sum_histogram_df = raw_histogram_df.pop('bins')
-    scan1_cols = [col for col in raw_histogram_df.columns if int(col.split('_')[1]) == 1]
-    raw_histogram_df.drop(scan1_cols, axis=1, inplace=True)
-
-    for x in range(2,pass_counter+1):
-        pass_histogram_df = pd.DataFrame()
-        for col in raw_histogram_df.columns:
-            if int(col.split('_')[1]) <= x:
-                pass_histogram_df = pd.concat([pass_histogram_df, raw_histogram_df[col]], axis=1)
-        for i in range(1,spot_counter+1):
-            cols_to_sum = [col for col in pass_histogram_df if int(col.split('_')[0]) == i]
-            new_name = str(i)+'_'+str(x)
-            sum_histogram_df =  pd.concat([sum_histogram_df,
-                                           pass_histogram_df[cols_to_sum].sum(axis=1).rename(new_name)],
-                                           axis=1
-            )
+    sum_histogram_df = vgraph.sum_histogram(raw_histogram_df, spot_counter, pass_counter)
     sum_histogram_df.to_csv('{}/{}.sum_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
 
-    avg_histogram_df = sum_histogram_df['bins']
-    for x in range(2,pass_counter+1):
-        pass_histogram_df = pd.DataFrame()
-        for col in sum_histogram_df.columns[1:]:
-            if int(col.split('_')[1]) == x:
-                pass_histogram_df = pd.concat([pass_histogram_df, sum_histogram_df[col]], axis=1)
-        for key in mAb_dict_rev:
-            cols_to_avg = [col for col in pass_histogram_df
-                               if int(col.split('_')[0])
-                               in mAb_dict_rev[key]
-            ]
-            new_name = key+'_'+str(x)
-            avg_histogram_df = pd.concat([avg_histogram_df,
-                                          sum_histogram_df[cols_to_avg].mean(axis=1).rename(new_name)],
-                                          axis=1
-            )
-
-    for col in avg_histogram_df.columns:
-        if col is not 'bins':
-            avg_histogram_df = pd.concat([avg_histogram_df,
-                                            avg_histogram_df[col].rolling(window = 7,
-                                            center = True).mean().rename(col+'_'+r'$\overline{x}$')],
-                                            axis=1
-            )
+    avg_histogram_df = vgraph.average_histogram(sum_histogram_df, mAb_dict_rev, pass_counter)
     avg_histogram_df.to_csv('{}/{}_avg_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
 #*********************************************************************************************#
     """Generates a histogram figure for each pass in the IRIS experiment from a
@@ -940,7 +849,7 @@ if min_cont == 0:
     else: y_grid = int(np.ceil(abs((y_max - y_min) // 10)/5) * 5)
     if pass_counter < 10: passes_to_show = 1
     else: passes_to_show = pass_counter // 10
-
+    line_settings = dict(lw=2 ,alpha=0.75)
     for i in range(2, pass_counter+1, passes_to_show):
         sns.set(style='ticks')
         c = 0
@@ -951,10 +860,10 @@ if min_cont == 0:
             if pass_num == i:
                 plt.plot(bin_series,
                          smooth_histo_df[col],
-                         linewidth = 2,
                          color = vhf_colormap[c],
-                         alpha = 0.75,
-                         label = spot_type)
+                         label = spot_type,
+                         **line_settings
+                )
                 c += 1
 
         plt.title(chip_name+" Pass "+str(i)+" Average Histograms")
