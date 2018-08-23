@@ -161,8 +161,6 @@ def spot_finder(image, canny_sig = 2, rad_range = (525, 651), center_mode = Fals
 #*********************************************************************************************#
 def clahe_3D(img_stack, cliplim = 0.003, recs = 0):
     """Performs the contrast limited adaptive histogram equalization on the stack of images"""
-    # shape =
-    # mid_pic = int(np.ceil(shape[0]/2))
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
     img3D_clahe = np.empty_like(img_stack).astype('float64')
@@ -172,20 +170,7 @@ def clahe_3D(img_stack, cliplim = 0.003, recs = 0):
         for plane,image in enumerate(img_stack):
             img3D_clahe[plane] = equalize_adapthist(image, clip_limit = cliplim)
             image_r = img3D_clahe[plane].ravel()
-                # hist1, hbins1 = np.histogram(image_r, bins = 55)
-                # mean, std = norm.fit(image_r)
-                # mean, var, skew, kurt = norm.stats(moments='mvsk')
 
-                # var = np.var(img3D_clahe[plane])
-                # print(var)
-                # if var < 0.012:
-                #     recs += 1
-                #     print("Recursing %d" % recs)
-                #     mult = 3.3 - (0.3 * recs)
-                #     cliplim = round(cliplim * mult,3)
-                #     img3D_clahe[plane] = clahe_3D(img3D_clahe[plane], cliplim, recs = recs)
-                #
-                # else: print("Sweet Distribution!")
     return img3D_clahe
 #*********************************************************************************************#
 def rescale_3D(img_stack, perc_range = (2,98)):
