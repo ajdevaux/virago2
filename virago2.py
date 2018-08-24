@@ -20,7 +20,7 @@ import glob, os, warnings, sys
 pd.set_option('display.width', 1000)
 pd.options.display.max_rows = 999
 logo.print_logo()
-version = '2.7.6'
+version = '2.7.7'
 print("VERSION {}".format(version))
 #*********************************************************************************************#
 #
@@ -28,7 +28,7 @@ print("VERSION {}".format(version))
 #
 #*********************************************************************************************#
 
-IRISmarker_liq = skio.imread('images/IRISmarker_new.tif')
+IRISmarker_liq = skio.imread('images/IRISmarker_maxmin_v5.tif')
 IRISmarker_exo = skio.imread('images/IRISmarker_maxmin_v4.tif')
 finish_anal = 'no'
 pgm_list, zip_list = [],[]
@@ -180,7 +180,9 @@ if pgm_toggle.lower() not in ('no', 'n'):
             missing_csvs = scan_set.difference(scans_counted)
 
             for scan in missing_csvs:
-                vpipes.bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir)
+                vpipes.bad_data_writer(chip_name, spot_to_scan, scan,
+                                       marker_dict, vdata_dict, vcount_dir
+                )
 
         whole_spot_df = pd.DataFrame()
         cum_mean_shift = (0,0)
@@ -199,7 +201,9 @@ if pgm_toggle.lower() not in ('no', 'n'):
             if 'bad' in pgm_name:
                 print('\nBad image\n')
                 for scan in range(1,passes_per_spot+1):
-                    vpipes.bad_data_writer(spot_to_scan, scan, vcount_dir)
+                    vpipes.bad_data_writer(chip_name, spot_to_scan, scan,
+                                           marker_dict, vdata_dict, vcount_dir
+                    )
                 break
 
             spot_num = int(pgm_name[1])
@@ -241,34 +245,50 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
 
-            if zslice_count > 1: focal_plane = int(np.floor(zslice_count/2)) + 1
+            if zslice_count > 1: focal_plane = int(np.floor(zslice_count/2))
             else: focal_plane = 0
 
-            # def find_focus(pic3D):
-            #     z, nrows, ncols = pic3D.shape
-            #     # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
-            #     teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D]
-            #     teng_vals_norm = [val/sum(teng_vals) for val in teng_vals]
-            #     laplace_vals = [laplace(pic,3).var() for pic in pic3D]
-            #     laplace_vals_norm = [val/sum(laplace_vals) for val in laplace_vals]
-            #     teng_diff = list(np.diff(teng_vals))
-            #     laplace_diff = list(np.diff(laplace_vals))
-            #     # teng_sign = []
-            #     # for val in teng_diff:
-            #     #     if val < 0:
-            #     #         teng_sign.append('Neg')
-            #     #     elif val > 0:
-            #     #         teng_sign.append('Pos')
-            #     #     else:
-            #     #         teng_sign.append(None)
-            #     print(teng_sign)
-            #     print(teng_diff.index(min(teng_diff))+1)
-            #     print(laplace_diff.index(min(laplace_diff))+1)
-            #     plt.plot(teng_vals_norm)
-            #     plt.plot(laplace_vals_norm)
-            #     plt.show()
-            #     plt.clf()
+            def find_focus(pic3D):
+                z, nrows, ncols = pic3D.shape
+                # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
+                teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D]
+                teng_vals_norm = [val/sum(teng_vals) for val in teng_vals]
+                laplace_vals = [laplace(pic,3).var() for pic in pic3D]
+                laplace_vals_norm = [val/sum(laplace_vals) for val in laplace_vals]
+                teng_diff = list(np.diff(teng_vals))
+                laplace_diff = list(np.diff(laplace_vals))
+                # teng_sign = []
+                # for val in teng_diff:
+                #     if val < 0:
+                #         teng_sign.append('Neg')
+                #     elif val > 0:
+                #         teng_sign.append('Pos')
+                #     else:
+                #         teng_sign.append(None)
+                print(teng_sign)
+                print(teng_diff.index(min(teng_diff))+1)
+                print(laplace_diff.index(min(laplace_diff))+1)
+                plt.plot(teng_vals_norm)
+                plt.plot(laplace_vals_norm)
+                plt.show()
+                plt.clf()
+            #COULD BE INTERESTING
+            def fourier_map(pic3D):
+                z, nrows, ncols = pic3D.shape
+                for plane in pic3D:
+                    f = np.fft.fft2(plane)
+                    fshift = np.fft.fftshift(f)
+                    mag_spec = 20*np.log(np.abs(fshift))
 
+                    crow,ccol = rows//2 , cols//2
+                    fshift[crow-30:crow+30, ccol-30:ccol+30] = 0
+                    f_ishift = np.fft.ifftshift(fshift)
+                    img_back = np.fft.ifft2(f_ishift)
+                    img_back = np.abs(img_back)
+                    # vimage.gen_img(img_back)
+                    print(np.max(img_back))
+
+                return img_back
             # find_focus(pic3D_rescale)
 
             pic_rescale_focus = pic3D_rescale[focal_plane]
@@ -276,11 +296,12 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
             pic_maxmin = np.max(pic3D_rescale, axis = 0) - np.min(pic3D_rescale, axis = 0)
+            # pic_maxint = np.max(pic3D_rescale[:focal_plane], axis=0)
 
-            marker_locs= vimage.marker_finder(image = pic3D_rescale[focal_plane + 1],
-                                                marker = IRISmarker,
-                                                thresh = 0.85,
-                                                gen_mask = False,
+            marker_locs = vimage.marker_finder(image = pic_maxmin,
+                                              marker = IRISmarker,
+                                              thresh = 0.8,
+                                              gen_mask = False,
             )
             marker_dict[spot_pass_str] = marker_locs
 
@@ -321,11 +342,12 @@ if pgm_toggle.lower() not in ('no', 'n'):
                 spot_coords = (shift_x, shift_y, spot_coords[2])
                 circle_dict[spot_num] = spot_coords
             else:
-                spot_coords, pic_canny = vimage.spot_finder(pic_rescale_focus,
-                                                            canny_sig = 2.75,
+                spot_coords, pic_canny = vimage.spot_finder(pic_maxmin,
+                                                            canny_sig = 2,
                                                             rad_range=(450,651),
                                                             center_mode = False
                 )
+                # vimage.gen_img(pic_canny)
                 circle_dict[spot_num] = spot_coords
 
             row, col = np.ogrid[:nrows,:ncols]
@@ -340,6 +362,8 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
             pic_maxmin_masked = np.ma.array(pic_maxmin,
                                             mask = full_mask).filled(fill_value = np.nan)
+            # pic_maxint_masked = np.ma.array(pic_maxint,
+            #                                 mask = full_mask).filled(fill_value = np.nan)
 
             # pic3D_rescale_ma = vimage.masker_3D(pic3D_rescale, full_mask, filled = True, fill_val = np.nan)
 
@@ -350,19 +374,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
 
-            ###    COULD BE INTERESTING:
-                # f = np.fft.fft2(plane)
-                # fshift = np.fft.fftshift(f)
-                # mag_spec = 20*np.log(np.abs(fshift))
-                #
-                # rows, cols = plane.shape
-                # crow,ccol = rows//2 , cols//2
-                # fshift[crow-30:crow+30, ccol-30:ccol+30] = 0
-                # f_ishift = np.fft.ifftshift(fshift)
-                # img_back = np.fft.ifft2(f_ishift)
-                # img_back = np.abs(img_back)
-                # vimage.gen_img(img_back)
-                # print(np.max(img_back))
+
 
 
 
@@ -453,7 +465,8 @@ if pgm_toggle.lower() not in ('no', 'n'):
             # trough = -0.5
 
             maxmin_median = np.nanmedian(pic_maxmin_masked)
-            # print(maxmin_median)
+            # maxint_median = np.nanmedian(pic_maxint_masked)
+            # print(maxmin_median, maxint_median)
 
             ridge_list = vquant.classify_shape(shapedex, pic_maxmin, ridge,
                                                delta=0.15, intensity=(maxmin_median*4)
@@ -512,7 +525,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
 
             if pass_num == 1:
-                particle_mask = ndi.morphology.binary_dilation(pic_binary, iterations=2)
+                particle_mask = ndi.morphology.binary_dilation(pic_binary, iterations=3)
             else:
                 particle_mask = np.add(particle_mask,
                                        ndi.morphology.binary_dilation(pic_binary, iterations=2)
@@ -634,8 +647,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
 
             print("Total valid particles counted in {}: {}\n".format(img_name, total_particles))
             print("""
-                     #**********************************************
-                     ***********************************************#
+                     #*************************************************************************#
             """)
             # print("Filaments counted: {}".format(filo_ct))
             # print("Percent filaments: {}\n".format(perc_fil))
@@ -696,7 +708,7 @@ if pgm_toggle.lower() not in ('no', 'n'):
             vgraph.gen_particle_image(pic_to_show,whole_spot_df,spot_coords,
                                       pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
                                       show_particles = False, scalebar = 15,
-                                      markers = ''
+                                      markers = marker_locs
             )
             plt.savefig('{}/{}.png'.format(img_dir, img_name), dpi = 96)
             plt.clf(); plt.close('all')

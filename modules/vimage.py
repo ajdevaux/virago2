@@ -92,8 +92,7 @@ def gen_img(image, name = 'default', savedir = '', cmap = 'gray', dpi = 96, show
     fig.add_axes(axes)
     axes.set_axis_off()
     axes.imshow(image, cmap = cmap)
-    # if zoom_amt > 1:
-    #     image = zoom(image, zoom_amt)
+
     if savedir:
         plt.savefig('{}/{}.png'.format(savedir, name), dpi = dpi)
         print("\nFile generated: {}.png\n".format(name))
@@ -122,10 +121,10 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
     marker_match = match_template(image, marker, pad_input = True)
     # gen_img(marker_match, show=True)
     locs = peak_local_max(marker_match,
-                                  min_distance = 800,
-                                  threshold_rel = thresh,
-                                  exclude_border = False,
-                                  num_peaks = 4
+                          min_distance = 820,
+                          threshold_rel = thresh,
+                          exclude_border = False,
+                          num_peaks = 4
     )
     locs = [tuple(coords) for coords in locs]
     locs.sort(key = lambda coord: coord[1])

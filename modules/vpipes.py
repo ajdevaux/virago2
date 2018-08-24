@@ -71,61 +71,61 @@ def sample_namer(iris_path):
         sample_name = input("\nPlease enter a sample descriptor (e.g. VSV-MARV@1E6 PFU/mL)\n")
     return sample_name
 #*********************************************************************************************#
-def write_vdata(dir, filename, list_of_vals):
-    with open(dir + '/' + filename + '.vdata.txt', 'w') as vdata_file:
-        vdata_file.write((
-                         'filename: {0}\n'
-                         +'spot_type: {1}\n'
-                         +'area_sqmm: {2}\n'
-                         +'image_shift_RC: {3}\n'
-                         +'overlay_mode: {4}\n'
-                         +'non-filo_ct: {5}\n'
-                         +'filo_ct: {6}\n'
-                         +'total_particles: {7}\n'
-                         +'slice_high_count: {8}\n'
-                         +'spot_coords_xyr: {9}\n'
-                         +'marker_coords_RC: {10}\n'
-                         +'binary_thresh: {11}\n'
-                         +'valid: {12}'
-                         ).format(*list_of_vals)
-                        )
+# def write_vdata(dir, filename, list_of_vals):
+#     with open(dir + '/' + filename + '.vdata.txt', 'w') as vdata_file:
+#         vdata_file.write((
+#                          'filename: {0}\n'
+#                          +'spot_type: {1}\n'
+#                          +'area_sqmm: {2}\n'
+#                          +'image_shift_RC: {3}\n'
+#                          +'overlay_mode: {4}\n'
+#                          +'non-filo_ct: {5}\n'
+#                          +'filo_ct: {6}\n'
+#                          +'total_particles: {7}\n'
+#                          +'slice_high_count: {8}\n'
+#                          +'spot_coords_xyr: {9}\n'
+#                          +'marker_coords_RC: {10}\n'
+#                          +'binary_thresh: {11}\n'
+#                          +'valid: {12}'
+#                          ).format(*list_of_vals)
+#                         )
         # write_list =[]
         # for val in list_of_vals:
         #     write_list.append(str(val)+': '+val+'\n')
 
 #*********************************************************************************************#
-def missing_pgm_fixer(spot_to_scan, pass_counter, pass_per_spot_list,
-                      chip_name, marker_dict, filo_toggle = False, version = 1):
-    print("Missing pgm files... fixing...")
-    vcount_dir = '../virago_output/{}/vcounts'.format(chip_name)
-    scans_counted = [int(file.split(".")[-1]) for file in pass_per_spot_list]
-    scan_set = set(range(1,pass_counter+1))
-    missing_df = pd.DataFrame(np.zeros(shape = (1,6)),
-                         columns = ['y', 'x', 'r', 'z', 'pc', 'sdm'])
-
-    missing_csvs = scan_set.difference(scans_counted)
-
-    for scan in missing_csvs:
-        scan_str = str(scan)
-        spot_str = str(spot_to_scan)
-        spot_scan_str  = '{}.{}'.format(spot_str, scan_str)
-        marker_dict[spot_scan_str] = (0,0)
-        scan_data = [chip_name, vpipes.three_digs(spot_to_scan), vpipes.three_digs(scan)]
-        missing_scan = "{0}.{1}.{2}".format(*scan_data)#chip_name + '.' + '0' * (3 - len(spot_str)) + spot_str + '.' + '0' * (3 - len(scan_str)) + scan_str
-        print(missing_scan)
-        missing_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, missing_scan))
-        if filo_toggle == True:
-            filo_dir = '../virago_output/'+ chip_name + '/filo'
-            missing_filo_df = pd.DataFrame(columns = ['centroid_bin', 'label_skel',
-                                                      'filament_length_um', 'roundness',
-                                                      'pc', 'vertex1', 'vertex2',
-                                                      'area', 'bbox_verts'])
-            missing_filo_df.to_csv('{}/{}.filocount.csv'.format(filo_dir,missing_scan))
-        missing_vals = list([missing_scan, 'N/A', 0, 'N/A', 'N/A', 'N/A',
-                            'N/A', 0, 'N/A', 'N/A', 'N/A', 'N/A', False])
-        write_vdata(vcount_dir, missing_scan, missing_vals)
-
-        print("Writing blank data files for {}".format(missing_scan))
+# def missing_pgm_fixer(spot_to_scan, pass_counter, pass_per_spot_list,
+#                       chip_name, marker_dict, filo_toggle = False, version = 1):
+#     print("Missing pgm files... fixing...")
+#     vcount_dir = '../virago_output/{}/vcounts'.format(chip_name)
+#     scans_counted = [int(file.split(".")[-1]) for file in pass_per_spot_list]
+#     scan_set = set(range(1,pass_counter+1))
+#     missing_df = pd.DataFrame(np.zeros(shape = (1,6)),
+#                          columns = ['y', 'x', 'r', 'z', 'pc', 'sdm'])
+#
+#     missing_csvs = scan_set.difference(scans_counted)
+#
+#     for scan in missing_csvs:
+#         scan_str = str(scan)
+#         spot_str = str(spot_to_scan)
+#         spot_scan_str  = '{}.{}'.format(spot_str, scan_str)
+#         marker_dict[spot_scan_str] = (0,0)
+#         scan_data = [chip_name, vpipes.three_digs(spot_to_scan), vpipes.three_digs(scan)]
+#         missing_scan = "{0}.{1}.{2}".format(*scan_data)#chip_name + '.' + '0' * (3 - len(spot_str)) + spot_str + '.' + '0' * (3 - len(scan_str)) + scan_str
+#         print(missing_scan)
+#         missing_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, missing_scan))
+#         if filo_toggle == True:
+#             filo_dir = '../virago_output/'+ chip_name + '/filo'
+#             missing_filo_df = pd.DataFrame(columns = ['centroid_bin', 'label_skel',
+#                                                       'filament_length_um', 'roundness',
+#                                                       'pc', 'vertex1', 'vertex2',
+#                                                       'area', 'bbox_verts'])
+#             missing_filo_df.to_csv('{}/{}.filocount.csv'.format(filo_dir,missing_scan))
+#         missing_vals = list([missing_scan, 'N/A', 0, 'N/A', 'N/A', 'N/A',
+#                             'N/A', 0, 'N/A', 'N/A', 'N/A', 'N/A', False])
+#         write_vdata(vcount_dir, missing_scan, missing_vals)
+#
+#         print("Writing blank data files for {}".format(missing_scan))
 
 
 #*********************************************************************************************#
@@ -177,30 +177,30 @@ def zipper(filename, filelist, dir = os.getcwd(), compression = 'bz2'):
         zf.write(file,compress_type=zMODE)
         print("{} added to {}.{}".format(file, filename, compression))
 #*********************************************************************************************#
-def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir):
+def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vdata_dict, vcount_dir):
     spot_scan_str = '{}.{}'.format(spot_to_scan, scan)
     marker_dict[spot_scan_str] = (0,0)
 
     scan_data = [chip_name, three_digs(spot_to_scan), three_digs(scan)]
 
     bad_scan = '{0}.{1}.{2}'.format(*scan_data)
-    shape_df_cols = [ 'label_bin',	'coords',	'centroid_bin',	'area',
-                      'roundness',	'bbox_verts',  'greatest_max', 'max_z','median_bg'
-                      'perc_intensity',	'perim_area_ratio','filo_points',
-                      'round_points',	'median_bg','cv_bg','perc_contrast', 'filo_score'
-    ]
-    blank_df = pd.DataFrame(np.zeros(shape = (1,len(shape_df_cols))), columns = [shape_df_cols])
-
-    blank_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, bad_scan))
+    # shape_df_cols = [ 'label_bin',	'coords',	'centroid_bin',	'area',
+    #                   'roundness',	'bbox_verts',  'greatest_max', 'max_z','median_bg'
+    #                   'perc_intensity',	'perim_area_ratio','filo_points',
+    #                   'round_points',	'median_bg','cv_bg','perc_contrast', 'filo_score'
+    # ]
+    # blank_df = pd.DataFrame(np.zeros(shape = (1,len(shape_df_cols))), columns = [shape_df_cols])
+    #
+    # blank_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, bad_scan))
 
     missing_vdata_dict= {'image_name'      : bad_scan,
                          'spot_type'       : 'N/A',
                          'area_sqmm'       : 0,
                          'image_shift_RC'  : 'N/A',
                          'overlay_mode'    : 'N/A',
-                         'particle_count'  : 0,
+                         'total_particles' : 0,
                          'exo_toggle'      : False,
-
+                         'focal_plane'     : 'N/A',
                          'spot_coords_xyr' : 'N/A',
                          'marker_coords_RC': 'N/A',
                          'valid'           : False,
