@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from skimage import io as skio
-import os, json, math, warnings, sys, glob, zipfile
+from skimage.external.tifffile import TiffWriter
+import os, json, math, warnings, sys, glob, zipfile, re
 #*********************************************************************************************#
 #
 #           SUBROUTINES
@@ -17,24 +18,24 @@ def three_digs(number):
 
     return '0'*(3 - len(number)) + number
 #*********************************************************************************************#
-def chip_file_reader(xml_file):
-    """XML file reader, reads the chip file used during the IRIS experiment"""
+def xml_parser(xml_file):
+    """XML file parser, reads the turns the chipFile into a list of dictionaries"""
     xml_raw = etree.iterparse(xml_file)
-    chip_dict = {}
-    chip_file = []
+    spot_info_dict = {}
+    chipFile = []
     for action, elem in xml_raw:
         if not elem.text:
             text = "None"
         else:
             text = elem.text
-        chip_dict[elem.tag] = text
+        spot_info_dict[elem.tag] = text
         if elem.tag == "spot":
-            chip_file.append(chip_dict)
-            chip_dict = {}
+            chipFile.append(spot_info_dict)
+            spot_info_dict = {}
     print("Chip file read\n")
-    return chip_file
+    return chipFile
 #*********************************************************************************************#
-def dejargonifier(chip_file):
+def chipFile_reader(chipFile, remove_jargon = True):
     """This takes antibody names from the chip file and makes them more general for easier layperson understanding.
     It returns two dictionaries that match spot number with antibody name."""
     jargon_dict = {
@@ -44,21 +45,27 @@ def dejargonifier(chip_file):
                    '13C6': r'$\alpha$'+'-EBOV'
                    }
     mAb_dict = {}
-    for q, spot in enumerate(chip_file):
-        spot_info_dict = chip_file[q]
+    for q, spot in enumerate(chipFile):
+        spot_info_dict = chipFile[q]
         mAb_name = spot_info_dict['spottype'].upper()
+        xloc = spot_info_dict['xmicrons']
+        yloc = spot_info_dict['ymicrons']
+        spot_height = spot_info_dict['signalheight']
+
         for key in jargon_dict.keys():
-            if mAb_name.startswith(key) or mAb_name.endswith(key):
+            if (mAb_name.startswith(key) or mAb_name.endswith(key)) & (remove_jargon == True):
                 new_name = jargon_dict[key] + '_(' + mAb_name + ')'
                 break
             else:
                 new_name = mAb_name
-        mAb_dict[q + 1] = new_name
+        mAb_dict[q + 1] = new_name, xloc, yloc, spot_height
 
     mAb_dict_rev = {}
     for key, val in mAb_dict.items():
-        mAb_dict_rev[val] = mAb_dict_rev.get(val, [])
-        mAb_dict_rev[val].append(key)
+        rev_key = val[0]
+        mAb_dict_rev[rev_key] = mAb_dict_rev.get(val, [])
+        mAb_dict_rev[rev_key].append(key)
+
     return mAb_dict, mAb_dict_rev
 #*********************************************************************************************#
 def sample_namer(iris_path):
@@ -130,7 +137,8 @@ def sample_namer(iris_path):
 
 #*********************************************************************************************#
 def mirror_finder(pgm_list):
-    mirror_file = str(glob.glob('*000.pgm')).strip("'[]'")
+    regex = re.compile('000\.000')
+    mirror_file = list(filter(regex.search, pgm_list))[0]
     if mirror_file:
         pgm_list.remove(mirror_file)
         mirror = skio.imread(mirror_file)
@@ -152,19 +160,7 @@ def sample_namer(iris_path):
         sample_name = input("\nPlease enter a sample descriptor (e.g. VSV-MARV@1E6 PFU/mL)\n")
     return sample_name
 #*********************************************************************************************#
-def determine_IRIS(nrows, ncols):
-    if (nrows,ncols) == (1080,1072):
-        cam_micron_per_pix = 3.45 * 2
-        mag = 44
-        print("\nExoviewer images\n")
-        exo_toggle = True
-    else:
-        cam_micron_per_pix = 5.86
-        mag = 40
-        exo_toggle = False
-    return cam_micron_per_pix, mag, exo_toggle
-#*********************************************************************************************#
-def zipper(filename, filelist, dir = os.getcwd(), compression = 'bz2'):
+def zipper(filename, filelist, compression='zip', iris_path=os.getcwd()):
     if compression == '7z':
         zMODE = zipfile.ZIP_LZMA
     elif compression =='zip':
@@ -172,26 +168,21 @@ def zipper(filename, filelist, dir = os.getcwd(), compression = 'bz2'):
     elif compression == 'bz2':
         zMODE = zipfile.ZIP_BZIP2
 
-    zf = zipfile.ZipFile(dir +'/'+filename+'.'+compression, mode='w')
+    if not os.path.exists('archive'):
+        os.makedirs('archive')
+
+    zf = zipfile.ZipFile(iris_path +'/archive/'+filename+'.'+compression, mode='w')
     for file in filelist:
         zf.write(file,compress_type=zMODE)
         print("{} added to {}.{}".format(file, filename, compression))
 #*********************************************************************************************#
-def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vdata_dict, vcount_dir):
+def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict,vcount_dir):
     spot_scan_str = '{}.{}'.format(spot_to_scan, scan)
     marker_dict[spot_scan_str] = (0,0)
 
     scan_data = [chip_name, three_digs(spot_to_scan), three_digs(scan)]
 
     bad_scan = '{0}.{1}.{2}'.format(*scan_data)
-    # shape_df_cols = [ 'label_bin',	'coords',	'centroid_bin',	'area',
-    #                   'roundness',	'bbox_verts',  'greatest_max', 'max_z','median_bg'
-    #                   'perc_intensity',	'perim_area_ratio','filo_points',
-    #                   'round_points',	'median_bg','cv_bg','perc_contrast', 'filo_score'
-    # ]
-    # blank_df = pd.DataFrame(np.zeros(shape = (1,len(shape_df_cols))), columns = [shape_df_cols])
-    #
-    # blank_df.to_csv('{}/{}.vcount.csv'.format(vcount_dir, bad_scan))
 
     missing_vdata_dict= {'image_name'      : bad_scan,
                          'spot_type'       : 'N/A',
@@ -210,3 +201,67 @@ def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vdata_dict, vcou
         for k,v in missing_vdata_dict.items():
             f.write('{}: {}\n'.format(k,v))
     print("Writing blank data files for {}".format(bad_scan))
+#*********************************************************************************************#
+def version_finder(version):
+    major, minor, micro = re.search('(\d+)\.(\d+)\.(\d+)', version).groups()
+
+    return int(major), int(minor), int(micro)
+#*********************************************************************************************#
+def pgm_to_tiff(pic3D, img_name, stack_list, archive_pgm=False):
+    # stack_name = '.'.join(pgm_name[:-2])
+    tiff_name = img_name + '.tif'
+
+    with TiffWriter(tiff_name, imagej=True) as tif_img:
+        for i in range(pic3D.shape[0]):
+            tif_img.save(pic3D[i], compress = 1)
+        print("TIFF file generated: {}".format(tiff_name))
+
+    if archive_pgm == True:
+        zipper(img_name, stack_list, compression='bz2', iris_path=os.getcwd())
+        for pgm in stack_list:
+            os.remove(pgm)
+#*********************************************************************************************#
+def tiff_maker(pgm_list):
+    chip_name = pgm_list[0].split(".")[0]
+
+    pgm_list, mirror = mirror_finder(pgm_list)
+    fluor_files = [file for file in pgm_list if file.split(".")[-2] in 'ABC']
+    if fluor_files:
+        pgm_list = [file for file in pgm_list if file not in fluor_files]
+        print("Fluorescent channel(s) detected, will not be converted to TIFF\n")
+
+    pgm_set = set([".".join(file.split(".")[:3]) for file in pgm_list])
+
+    spot_counter = max([int(pgmfile.split(".")[1]) for pgmfile in pgm_list])##Important
+    zslice_count = max([int(pgmfile.split(".")[3]) for pgmfile in pgm_list])
+
+    print("There are {} PGM images, in stacks of {}.\n".format(len(pgm_list), zslice_count))
+
+    pass_counter = int(max([pgm.split(".")[2] for pgm in pgm_list]))##Important
+
+    spot_to_scan = 1
+
+    while spot_to_scan <= spot_counter:
+
+        pps_list = sorted([file for file in pgm_set if int(file.split(".")[1]) == spot_to_scan])
+        passes_per_spot = len(pps_list)
+        if passes_per_spot == 0:
+            print("No pgm files for spot {} \n".format(spot_to_scan))
+            spot_to_scan += 1
+
+        # elif (passes_per_spot != pass_counter):
+        #     print("Missing pgm files... \n")
+
+        else:
+            for scan in range(0,passes_per_spot,1):
+
+                stack_list = [file for file in pgm_list if file.startswith(pps_list[scan])]
+
+                scan_collection = skio.imread_collection(stack_list)
+                pgm_name = ".".join(stack_list[0].split(".")[:3])
+
+                pic3D = np.array([pic for pic in scan_collection], dtype='uint16')
+                pgm_to_tiff(pic3D, pgm_name, stack_list, archive_pgm=True)
+            spot_to_scan += 1
+
+    return sorted(glob.glob('{}.tif'.format(chip_name)))

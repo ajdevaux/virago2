@@ -6,18 +6,19 @@ import numpy as np
 from scipy.ndimage import zoom
 from scipy.stats import norm, gamma
 from skimage.exposure import cumulative_distribution, equalize_adapthist, rescale_intensity
-from skimage.feature import match_template, peak_local_max, canny
+from skimage.feature import match_template, peak_local_max
 from skimage.transform import hough_circle, hough_circle_peaks
 import math, warnings
+from clahe import clahe
 # from vpipes import _dict_matcher
 #*********************************************************************************************#
 #
 #           SUBROUTINES
 #
 #*********************************************************************************************#
-def image_details(fig1, fig2, fig3, pic_edge, chip_name, png, save = False, dpi = 96):
+def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png='', dpi = 96):
     """A subroutine for debugging contrast adjustment"""
-    bin_no = 55
+    bin_no = 150
     nrows, ncols = fig1.shape
     figsize = (ncols/dpi/2, nrows/dpi/2)
     fig = plt.figure(figsize = figsize, dpi = dpi)
@@ -26,7 +27,7 @@ def image_details(fig1, fig2, fig3, pic_edge, chip_name, png, save = False, dpi 
     ax_img.set_axis_off()
     fig.add_axes(ax_img)
 
-    fig3[pic_edge] = fig3.max()*2
+    fig3[pic_canny] = fig3.max()*2
 
     ax_img.imshow(fig3, cmap = 'gray')
 
@@ -67,12 +68,18 @@ def image_details(fig1, fig2, fig3, pic_edge, chip_name, png, save = False, dpi 
     ax_hist1.set_title("Normalized", color = 'r')
     ax_hist2.set_title("CLAHE Equalized", color = 'b')
     ax_hist3.set_title("Contrast Stretched", color = 'g')
+
     ax_hist1.set_ylim([0,max(hist1)])
+    ax_hist2.set_ylim([0,max(hist2)])
     ax_hist3.set_ylim([0,max(hist3)])
-    ax_hist1.set_xlim([np.median(fig1)-0.25,np.median(fig1)+0.25])
-    #ax_cdf1.set_ylim([0,1])
-    ax_hist2.set_xlim([np.median(fig2)-0.5,np.median(fig2)+0.5])
+
+    ax_hist1.set_xlim([np.median(fig1)-0.1,np.median(fig1)+0.1])
+    ax_hist2.set_xlim([np.median(fig2)-0.1,np.median(fig2)+0.1])
     ax_hist3.set_xlim([0,1])
+    #ax_cdf1.set_ylim([0,1])
+
+    ax_hist1.tick_params(labelcolor='tab:orange')
+
     if save == True:
         plt.savefig('../virago_output/' + chip_name
                     + '/processed_images/' + png
@@ -118,10 +125,13 @@ def gen_img3D(im3D, cmap = "gray", step = 1):
 #*********************************************************************************************#
 def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
     """This locates the "backwards-L" shapes in the IRIS images"""
-    marker_match = match_template(image, marker, pad_input = True)
-    # gen_img(marker_match, show=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        warnings.warn(FutureWarning)##Numpy FFT Warning. This is Scikit-Image's problem
+        marker_match = match_template(image, marker, pad_input = True)
+
     locs = peak_local_max(marker_match,
-                          min_distance = 820,
+                          min_distance = 800,
                           threshold_rel = thresh,
                           exclude_border = False,
                           num_peaks = 4
@@ -143,22 +153,21 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
     else:
         return locs
 #*********************************************************************************************#
-def spot_finder(image, canny_sig = 2, rad_range = (525, 651), center_mode = False):
+def spot_finder(image, rad_range = (525, 651), Ab_spot = True):
     """Locates the antibody spot convalently bound to the SiO2 substrate
     where particles of interest should be accumulating"""
     nrows, ncols = image.shape
-    pic_canny = canny(image, sigma = canny_sig)
-    if center_mode == True:
-        xyr = (536, 540, 500)
+    if Ab_spot == False:
+        xyr = (ncols/2, nrows/2, 600)
     else:
         hough_radius = range(rad_range[0], rad_range[1], 25)
-        hough_res = hough_circle(pic_canny, hough_radius)
+        hough_res = hough_circle(image, hough_radius)
         accums, cx, cy, rad = hough_circle_peaks(hough_res, hough_radius, total_num_peaks=1)
         xyr = tuple((int(cx), int(cy), int(rad)))
     print("Spot center coordinates (row, column, radius): {}\n".format(xyr))
-    return xyr, pic_canny
+    return xyr
 #*********************************************************************************************#
-def clahe_3D(img_stack, cliplim = 0.003, recs = 0):
+def clahe_3D(img_stack, cliplim = 0.003):
     """Performs the contrast limited adaptive histogram equalization on the stack of images"""
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
@@ -168,7 +177,7 @@ def clahe_3D(img_stack, cliplim = 0.003, recs = 0):
         warnings.warn(UserWarning)##Images are acutally converted to uint16 for some reason
         for plane,image in enumerate(img_stack):
             img3D_clahe[plane] = equalize_adapthist(image, clip_limit = cliplim)
-            image_r = img3D_clahe[plane].ravel()
+            # image_r = img3D_clahe[plane].ravel()
 
     return img3D_clahe
 #*********************************************************************************************#
@@ -229,9 +238,9 @@ def _dict_matcher(_dict, spot_num, pass_num, mode = 'series'):
     elif mode == 'series': prev_pass = pass_num - 1
     for key in _dict.keys():
         split_key = key.split('.')
-        if (split_key[0] == str(spot_num)) &  (split_key[1] == str(prev_pass)):
+        if (int(split_key[0]) == int(spot_num)) & (int(split_key[1]) == int(prev_pass)):
             prev_vals = _dict[key]
-        elif (split_key[0] == str(spot_num)) &  (split_key[1] == str(pass_num)):
+        elif (int(split_key[0]) == int(spot_num)) & (int(split_key[1]) == int(pass_num)):
             new_vals = _dict[key]
     return prev_vals, new_vals
 #*********************************************************************************************#
