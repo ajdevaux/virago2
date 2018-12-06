@@ -218,10 +218,10 @@ def pgm_to_tiff(pic3D, img_name, stack_list, archive_pgm=False):
 
     if archive_pgm == True:
         zipper(img_name, stack_list, compression='bz2', iris_path=os.getcwd())
-        for pgm in stack_list:
-            os.remove(pgm)
+    for pgm in stack_list:
+        os.remove(pgm)
 #*********************************************************************************************#
-def tiff_maker(pgm_list):
+def tiff_maker(pgm_list, archive = True):
     chip_name = pgm_list[0].split(".")[0]
 
     pgm_list, mirror = mirror_finder(pgm_list)
@@ -242,15 +242,12 @@ def tiff_maker(pgm_list):
     spot_to_scan = 1
 
     while spot_to_scan <= spot_counter:
+        print(spot_to_scan)
 
         pps_list = sorted([file for file in pgm_set if int(file.split(".")[1]) == spot_to_scan])
         passes_per_spot = len(pps_list)
         if passes_per_spot == 0:
             print("No pgm files for spot {} \n".format(spot_to_scan))
-            spot_to_scan += 1
-
-        # elif (passes_per_spot != pass_counter):
-        #     print("Missing pgm files... \n")
 
         else:
             for scan in range(0,passes_per_spot,1):
@@ -261,7 +258,9 @@ def tiff_maker(pgm_list):
                 pgm_name = ".".join(stack_list[0].split(".")[:3])
 
                 pic3D = np.array([pic for pic in scan_collection], dtype='uint16')
-                pgm_to_tiff(pic3D, pgm_name, stack_list, archive_pgm=True)
-            spot_to_scan += 1
 
-    return sorted(glob.glob('{}.tif'.format(chip_name)))
+                pgm_to_tiff(pic3D, pgm_name, stack_list, archive_pgm=archive)
+
+        spot_to_scan += 1
+
+    return sorted(glob.glob('{}.*.tif'.format(chip_name)))

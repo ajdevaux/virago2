@@ -261,7 +261,7 @@ if image_toggle.lower() not in ('no', 'n'):
             for scan in missing_csvs:
                 vpipes.bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir)
 
-        whole_spot_df = pd.DataFrame()
+        total_shape_df = pd.DataFrame()
         # cum_mean_shift = (0,0)
         for scan in range(0,passes_per_spot,1):
             first_scan = min(scans_counted)
@@ -584,7 +584,7 @@ if image_toggle.lower() not in ('no', 'n'):
 
             shape_df.reset_index(drop = True, inplace = True)
 
-            filo_pts_tot,round_pts_tot,max_z,greatest_max,all_pix_stack,chisq_list = [],[],[],[],[],[]
+            filo_pts_tot,round_pts_tot,max_z,greatest_max,all_int_profiles_z,chisq_list = [],[],[],[],[],[]
 
             for coord_array in shape_df.coords:
 
@@ -597,43 +597,49 @@ if image_toggle.lower() not in ('no', 'n'):
                 filo_pts_tot.append(filo_pts)
                 round_pts_tot.append(round_pts)
 
-                object_pix_stack = np.array([])
-                for coords in coord_array:
-                        pixel_stack = pic3D[:, coords[0], coords[1]]
-                        object_pix_stack = np.append([object_pix_stack], [pixel_stack])
-                object_pix_stack = object_pix_stack.reshape(len(coord_array), zslice_count)
-                mean_pix_stack = np.mean(object_pix_stack, axis=0)
-                all_pix_stack.append(mean_pix_stack)
-
-
                 pix_max_list, z_list = vquant.measure_max_intensity_stack(pic3D, coord_array)
 
-
-                # plt.xticks(0.9,1.1)
                 greatest_max.append(np.max(pix_max_list))
                 max_z.append(z_list[pix_max_list.index(max(pix_max_list))])
-                x=np.arange(1,zslice_count+1,1)
-                xprime=x[:-1]
 
-                stack_prime = np.diff(mean_pix_stack)*-1
+                # intensity_profile_z = np.array([])
+                # for coords in coord_array:
+                #         # pixel_stack = pic3D[:, coords[0], coords[1]]
+                #         intensity_profile_z = np.append([intensity_profile_z], [pic3D[:, coords[0], coords[1]]])
+                intensity_profile_z = np.array([list(pic3D[:, coords[0], coords[1]])
+                                                for coords in coord_array]
+                )
 
-                def fprime(x):
-                    y = np.cbrt(x-7.5)/120
-                    return np.diff(y)
 
-                chisq, pval = chisquare(stack_prime, fprime(x))
-                # plt.plot(xprime, stack_prime)
+                # intensity_profile_z = intensity_profile_z.reshape(len(coord_array), zslice_count)
+                mean_int_profile_z = list(np.round(np.mean(intensity_profile_z, axis=0),3))
+                all_int_profiles_z.append(mean_int_profile_z)
+
+
+                stack_prime = np.diff(mean_int_profile_z)*-1
+
+            # def fprime(x):
+            #     y = np.cbrt(x-7.5)/120
+            #     return np.diff(y)
+
+            # chisq, pval = chisquare(stack_prime, fprime(x))
+
+            # fig  = plt.figure()
+            # x = np.arange(1,zslice_count+1,1)
+            # xprime = x[:-1]
+            # for stack in all_int_profiles_z:
+            #     plt.plot(x, stack, lw=0.5)
                 # plt.plot(xprime, fprime(x), linewidth=5)
                 # plt.text(1,0,(chisq, pval))
-                # plt.show()
-                chisq_list.append(chisq)
-
+                # chisq_list.append(chisq)
+            # plt.show()
 
             # plt.savefig('{}/{}.particle_intensity_z.png'.format(vcount_dir, img_name))
 
             shape_df['greatest_max'] = greatest_max
             shape_df['max_z'] = max_z
-            shape_df['chisq'] = chisq_list
+            shape_df['mean_intensity_profile_z'] = all_int_profiles_z
+            # shape_df['chisq'] = chisq_list
             shape_df['filo_points'] = filo_pts_tot
             shape_df['round_points'] = round_pts_tot
 
@@ -724,12 +730,12 @@ if image_toggle.lower() not in ('no', 'n'):
 
             shape_df.reset_index(drop=True, inplace=True)
 
-            whole_spot_df = pd.concat([whole_spot_df, shape_df], axis = 0)
-            whole_spot_df.reset_index(drop=True, inplace=True)
-            if (passes_per_spot > 1) & (pass_num == passes_per_spot) & (total_particles > 0):
-                filohisto(whole_spot_df, filo_cutoff = 0.25, irreg_cutoff = -0.25, range=filohist_range)
-                plt.savefig('{}/{}.filohistogram.png'.format(filo_dir, img_name))
-                print("Filament histogram generated")
+            total_shape_df = pd.concat([total_shape_df, shape_df], axis = 0)
+            total_shape_df.reset_index(drop=True, inplace=True)
+            # if (passes_per_spot > 1) & (pass_num == passes_per_spot) & (total_particles > 0):
+                # filohisto(total_shape_df, filo_cutoff = 0.25, irreg_cutoff = -0.25, range=filohist_range)
+                # plt.savefig('{}/{}.filohistogram.png'.format(filo_dir, img_name))
+                # print("Filament histogram generated")
 
 
             vdata_dict = {'image_name'      : img_name,
@@ -755,7 +761,7 @@ if image_toggle.lower() not in ('no', 'n'):
         ####Processed Image Renderer
             pic_to_show = pic3D_rescale[focal_plane]
 
-            vgraph.gen_particle_image(pic_to_show,whole_spot_df,spot_coords,
+            vgraph.gen_particle_image(pic_to_show,total_shape_df,spot_coords,
                                       pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
                                       show_particles=show_particles,
                                       scalebar = 15, markers = marker_locs,
@@ -771,7 +777,7 @@ if image_toggle.lower() not in ('no', 'n'):
 
 #---------------------------------------------------------------------------------------------#
 
-        whole_spot_df.to_csv('{}/{}.v2combined.csv'.format(vcount_dir, spot_ID))
+        total_shape_df.to_csv('{}/{}.v2combined.csv'.format(vcount_dir, spot_ID))
         analysis_time = str(datetime.now() - startTime)
 
 

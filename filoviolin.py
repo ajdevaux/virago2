@@ -33,9 +33,6 @@ expt_dict = {'tCHIP004':'EBOVmay@1E6',
              'tCHIP008':'VSV-EBOVmay@1E6',
              'pCHIP004':'MARVang@1E6',
              'aaCHIP006':'LASVjos@8E5'
-
-
-
 }
 
 

@@ -622,3 +622,25 @@ def fluor_overlayer(fluor_img, vis_img, fluor_filename, savedir=''):
 
     return fluor_rescale
 #*********************************************************************************************#
+def intensity_profile_graph(shape_df, pass_num,zslice_count, img_name):
+    # df_len = len(shape_df)
+
+    shape_df=shape_df[shape_df.pass_number == pass_num]
+    # for arr in shape_df['mean_intensity_profile_z']:
+    intensity_df= pd.DataFrame({'intensity':shape_df.mean_intensity_profile_z.apply(pd.Series).stack()
+    })
+    intensity_df['max_z'] = [y for x in [[z]*zslice_count for z in shape_df.max_z] for y in x]
+    intensity_df.reset_index(inplace=True)
+    intensity_df.rename(index=str, columns={'level_1': 'z'}, inplace=True)
+    intensity_df['z'] = intensity_df['z'] +1
+
+    sns.set_style('darkgrid')
+    sns.lineplot(x='z',
+                 y='intensity',
+                 hue='max_z',
+                 markers=True,palette="ch:2.5,.25", lw=1,
+                 ci='sd',
+                 data=intensity_df
+    )
+    plt.title(img_name)
+    plt.show()
