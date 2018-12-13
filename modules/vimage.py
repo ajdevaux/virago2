@@ -9,7 +9,7 @@ from skimage.exposure import cumulative_distribution, equalize_adapthist, rescal
 from skimage.feature import match_template, peak_local_max
 from skimage.transform import hough_circle, hough_circle_peaks
 import math, warnings
-from clahe import clahe
+# from clahe import clahe
 # from vpipes import _dict_matcher
 #*********************************************************************************************#
 #
@@ -172,12 +172,13 @@ def clahe_3D(img_stack, cliplim = 0.003):
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
     img3D_clahe = np.empty_like(img_stack).astype('float64')
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         warnings.warn(UserWarning)##Images are acutally converted to uint16 for some reason
-        for plane,image in enumerate(img_stack):
+
+        for plane, image in enumerate(img_stack):
             img3D_clahe[plane] = equalize_adapthist(image, clip_limit = cliplim)
-            # image_r = img3D_clahe[plane].ravel()
 
     return img3D_clahe
 #*********************************************************************************************#
@@ -250,28 +251,27 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
         prev_locs, new_locs = _dict_matcher(marker_dict, spot_num, pass_num, mode = mode)
         plocs_ct = len(prev_locs)
         nlocs_ct = len(new_locs)
-        if (plocs_ct > 0) & (nlocs_ct > 0) & (plocs_ct != nlocs_ct):
-            shift_array = [np.subtract(coords1, coords0)
-                           for coords0 in prev_locs
-                           for coords1 in new_locs
-                           if np.all(abs(np.subtract(coords1, coords0)) <= 50)
-                          ]
-        elif (plocs_ct > 0) & (nlocs_ct > 0) & (plocs_ct == nlocs_ct):
-            shift_array = [np.subtract(coords1, coords0)
-                           for coords0 in prev_locs
-                           for coords1 in new_locs
-                           if np.all(abs(np.subtract(coords1, coords0)) <= 75)
-                           ]
-        else:
-            shift_array = []
 
-        shift_array = np.asarray(shift_array)
+        if plocs_ct != nlocs_ct:
+            max_shift = 50
+        else:
+            max_shift = 75
+
+        if (plocs_ct > 0) & (nlocs_ct > 0):# & (plocs_ct == nlocs_ct):
+            shift_array = np.asarray([np.subtract(coords1, coords0)
+                                      for coords0 in prev_locs
+                                      for coords1 in new_locs
+                                      if np.all(abs(np.subtract(coords1, coords0)) <= max_shift)
+            ])
+        else:
+            shift_array = np.asarray([])
+
         if (shift_array.size > 0) & (shift_array.ndim == 1):
             mean_shift = shift_array
             print("Image shift: {}".format(mean_shift))
             overlay_toggle = True
         elif shift_array.size == 0:
-            mean_shift = np.array([0, 0])
+            mean_shift = [0, 0]
             print("No compatible markers, cannot compute shift")
             overlay_toggle = False
         else:
@@ -279,7 +279,7 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
             print("Image shift: {}\n".format(mean_shift))
             overlay_toggle = True
     else:
-        mean_shift = tuple((0,0))
+        mean_shift = (0,0)
         overlay_toggle = False
 
     return tuple(mean_shift), overlay_toggle
@@ -345,4 +345,28 @@ def cropper(pic, coords, img_dir, crop_pix = 150, zoom_amt = 1):
                             name = "{}.{}-{}".format(img_name,cy,cx),
                             savedir = img_dir
             )
+#*********************************************************************************************#
+def particle_mask_shift(particle_mask, mean_shift):
+    """
+    Shifts the before-and-after images so that old particles will be masked and not counted in
+    the new image
+    """
+    vshift = int(np.ceil(mean_shift[0]))
+    hshift = int(np.ceil(mean_shift[1]))
+
+    if vshift > 0:
+        particle_mask = np.delete(particle_mask, np.s_[-abs(vshift):], axis = 0)
+        particle_mask = np.insert(particle_mask, np.s_[0:abs(vshift)], False, axis = 0)
+    elif vshift < 0:
+        particle_mask = np.delete(particle_mask, np.s_[0:abs(vshift)], axis = 0)
+        particle_mask = np.insert(particle_mask, np.s_[-abs(vshift):], False, axis = 0)
+
+    if hshift > 0:
+        particle_mask = np.delete(particle_mask, np.s_[-abs(hshift):], axis = 1)
+        particle_mask = np.insert(particle_mask, np.s_[0:abs(hshift)], False, axis = 1)
+    elif hshift < 0:
+        particle_mask = np.delete(particle_mask, np.s_[0:abs(hshift)], axis = 1)
+        particle_mask = np.insert(particle_mask, np.s_[-abs(hshift):], False, axis = 1)
+
+    return particle_mask
 #*********************************************************************************************#
