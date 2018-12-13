@@ -1,31 +1,35 @@
 #!/usr/bin/env python3
-from __future__ import division
-from future.builtins import input
-from datetime import datetime
-from skimage import io as skio
-from skimage.filters import laplace, sobel_h, sobel_v
-from skimage.feature import shape_index, canny
-from skimage.measure import label, regionprops
-from scipy import ndimage as ndi
-from scipy.stats import chisquare
-from modules import vpipes, vimage, vquant, vgraph
-from modules.filographs import filohisto
-from images import logo
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import glob, os, warnings, sys
+import glob
+import os
+import sys
+import warnings
 
-# from filo2 import filo_image_gen
-# import random
+from __future__ import division
+from future.builtins import input
+from datetime import datetime
+from skimage import io as skio
+from skimage.filters import sobel_h, sobel_v
+from skimage.feature import shape_index, canny
+from skimage.measure import label, regionprops
+from scipy import ndimage as ndi
+# from scipy.stats import chisquare
+
+from modules import vpipes, vimage, vquant, vgraph
+from modules.filographs import filohisto
+from images import logo
+
 
 pd.set_option('display.width', 1000)
 pd.options.display.max_rows=999
 pd.options.display.max_columns=15
 logo.print_logo()
-version = '2.10.5'
+version = '2.10.6'
 """
+Version 2.10.6 = changed how focus is caluclated using the Tenengrad algorithm
 Version 2.10.5 = Increased CLAHE clip limit from .002 to .008 for Exoviewer images to improve quality
 Version 2.10.4 = Added TIFF compatibility
 Version 2.10.3 = New template for Exoviewer markers
@@ -39,13 +43,60 @@ Version 2.6 = Using mask to remove old particles instead of relying on subtracti
 print("VERSION {}\n".format(version))
 print(os.path.dirname(__file__))
 
+def find_focus_by_3methods(pic3D):
+    """
+    Uses edge detection to find the image in the stack with the highest variance,
+    which is deemed to have the greatest focusself.
+    """
+    var_vals = [np.var(sobel(image)) for image in marker_img]
+    var_max = var_vals.index(max(var_vals))
+
+    teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D]
+    teng_max = teng_vals.index(max(teng_vals))
+
+    laplace_vals = [laplace(pic,3).var() for pic in pic3D_rescale]
+    laplace_max = laplace_vals.index(max(laplace_vals))
+
+    top_3 = sorted(var_list, reverse = True)[:3]
+    index_list = [var_list.index(val) for val in top_3]
+    diff_list = [abs(pic3D.shape[0]//2 - val) for val in index_list]
+
+    return index_list[diff_list.index(min(diff_list))]
+
+def double_sum(pic3D):
+    M = pic3D.shape[1]
+    N = pic3D.shape[2]
+    B_list = []
+    for pic in pic3D:
+        # mu = np.mean(pic)
+        # coeff = 1/(M*N*mu)
+        B_list.append(sum((pic[i][j] - pic[i+2][j])**2 for i in range(M-2) for j in range(N)))
+
+#COULD BE INTERESTING
+def fourier_map(pic3D):
+    z, nrows, ncols = pic3D.shape
+    for plane in pic3D:
+        f = np.fft.fft2(plane)
+        fshift = np.fft.fftshift(f)
+        mag_spec = 20*np.log(np.abs(fshift))
+
+        crow,ccol = rows//2 , cols//2
+        fshift[crow-30:crow+30, ccol-30:ccol+30] = 0
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = np.fft.ifft2(f_ishift)
+        img_back = np.abs(img_back)
+        # vimage.gen_img(img_back)
+        print(np.max(img_back))
+
+    return img_back
 #*********************************************************************************************#
 #
 #    CODE BEGINS HERE
 #
 #*********************************************************************************************#
 ##Quick-change Boolean Parameters
-show_particles = False ##show particle info on output images
+show_particles = True ##show particle info on output images
+show_filos = True
 Ab_spot_mode = True ##change to False if chips have not been spotted with antibody microarray
 if Ab_spot_mode == False: print("This chip has no antibody spots\n")
 #*********************************************************************************************#
@@ -75,7 +126,6 @@ if tiff_list == []:
         convert_tiff = input("Convert PGM stacks to TIFFs (y/n)?")
     if convert_tiff in ['yes', 'y']: convert_tiff = True
     else: convert_tiff = False
-    # zslice_count = max([int(pgmfile.split(".")[3]) for pgmfile in pgm_list])
 
 elif pgm_list == []:
     tiff_toggle = True
@@ -112,11 +162,15 @@ if xml_file:
         cam_micron_per_pix = 3.45 * 2
         mag = 44
         exo_toggle = True
-        cv_cutoff = 0.1
+        cv_cutoff = 0.05
         IRISmarker = IRISmarker_exo
+        marker_h, marker_w =  IRISmarker.shape
+        hmarker_h = marker_h // 2
+        hmarker_w = marker_w // 2
         NA = 0.75
         timeseries_mode = 'scan'
         filohist_range = (0,50)
+
     elif meta_dict['chipversion'] == '5':
         print("In-liquid chip\n")
         cliplim = 0.004
@@ -156,7 +210,8 @@ conv_factor = (cam_micron_per_pix / mag)**2
 
 sample_name = vpipes.sample_namer(iris_path)
 
-virago_dir = '{}/v2results/{}'.format('/'.join(iris_path.split('/')[:-1]), chip_name)
+# virago_dir = '{}/v2results/{}'.format('/'.join(iris_path.split('/')[:-1]), chip_name)
+virago_dir = '{}/v-analysis'.format(iris_path)
 vcount_dir = '{}/vcounts'.format(virago_dir)
 img_dir = '{}/processed_images'.format(virago_dir)
 histo_dir = '{}/histograms'.format(virago_dir)
@@ -197,11 +252,12 @@ for val in missing_spots:
     iris_txt.insert(val-1,val)
 
 for ix, txtfile in enumerate(iris_txt):
-    spot_data_solo = pd.DataFrame({'spot_number': [ix+1] * pass_counter,
-                                   'scan_number': range(1,pass_counter + 1),
-                                   'spot_type'  : [mAb_dict[ix+1][0]]*pass_counter,
+    spot_data_solo = pd.DataFrame({'spot_number'   : [ix+1] * pass_counter,
+                                   'scan_number'   : range(1,pass_counter + 1),
+                                   'spot_type'     : [mAb_dict[ix+1][0]]*pass_counter,
                                    'chip_coords_xy': [mAb_dict[ix+1][1:3]]*pass_counter
-                                   })
+                                   }
+    )
     if not type(txtfile) is str:
         print("Missing text file for spot {}\n".format(txtfile))
         spot_data_solo['scan_time'] = [0] * pass_counter
@@ -215,9 +271,8 @@ for ix, txtfile in enumerate(iris_txt):
         pass_labels = [row for row in txtdata.index if row.startswith('pass_time')]
         times_s = txtdata.loc[pass_labels].values.flatten().astype(np.float)
         pass_diff = pass_counter - len(pass_labels)
-        if pass_diff > 0:
-            times_s = np.append(times_s, [0] * pass_diff)
-        spot_data_solo['scan_time'] = np.round(times_s / 60,2)
+        if pass_diff > 0: times_s = np.append(times_s, [0] * pass_diff)
+        spot_data_solo['scan_time'] = np.round(times_s * 0.0167,2)
         print('File scanned:  {}'.format(txtfile))
 
     spot_df = spot_df.append(spot_data_solo, ignore_index = True)
@@ -262,7 +317,7 @@ if image_toggle.lower() not in ('no', 'n'):
                 vpipes.bad_data_writer(chip_name, spot_to_scan, scan, marker_dict, vcount_dir)
 
         total_shape_df = pd.DataFrame()
-        # cum_mean_shift = (0,0)
+
         for scan in range(0,passes_per_spot,1):
             first_scan = min(scans_counted)
             stack_list = [file for file in image_list if file.startswith(pps_list[scan])]
@@ -289,7 +344,8 @@ if image_toggle.lower() not in ('no', 'n'):
                 scan_collection = skio.imread_collection(stack_list)
                 pic3D = np.array([pic for pic in scan_collection], dtype='uint16')
                 if convert_tiff == True:
-                    vpipes.pgm_to_tiff(pic3D, img_name, stack_list, archive_pgm=True)
+                    vpipes.pgm_to_tiff(pic3D, img_name, stack_list,
+                                       tiff_compression=1, archive_pgm=True)
 
             pic3D_orig = pic3D.copy()
 
@@ -309,50 +365,65 @@ if image_toggle.lower() not in ('no', 'n'):
             # vimage.gen_img(pic3D_rescale[9])
             print("Contrast adjusted\n")
 
-            if zslice_count > 1: focal_plane = int(np.floor(zslice_count/2)-1)
+            marker_locs = vimage.marker_finder(image = pic3D_norm[0],
+                                               marker = IRISmarker,
+                                               thresh = 0.65,
+                                               gen_mask = False,
+            )
+            marker_dict[spot_pass_str] = marker_locs
+            foci_list = []
+            for loc in marker_locs:
+                # print(loc)
+                if all(i > 70 for i in loc):
+                    marker3D_img = pic3D_norm[:,
+                                              loc[0]-hmarker_h : loc[0]+hmarker_h,
+                                              loc[1]-hmarker_w : loc[1]+hmarker_w
+                    ]
+
+                    teng_vals = [np.mean(sobel_h(img) **2 + sobel_v(img)**2)
+                                 for img in marker3D_img
+                    ]
+                    pos_vals = teng_vals[:teng_vals.index(min(teng_vals))]
+                    if not pos_vals == []:
+                        foci_list.append(teng_vals.index(max(pos_vals)))
+                        # plt.plot(range(1,zslice_count+1), teng_vals)
+                    # teng_max = min(teng_vals.index(max(teng_vals))
+            # plt.show()
+            # plt.clf()
+            if zslice_count > 1:
+                # focal_plane = zslice_count // 5
+                focal_plane = max(foci_list)
+
             else: focal_plane = 0
 
-            def find_focus(pic3D):
-                z, nrows, ncols = pic3D.shape
+            # def tenengrad(pic3D):
+            #   z, nrows, ncols = pic3D.shape
                 # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
-                teng_vals = [np.mean(sobel_h(pic)**2 + sobel_v(pic)**2) for pic in pic3D]
-                teng_vals_norm = [val/sum(teng_vals) for val in teng_vals]
-                laplace_vals = [laplace(pic,3).var() for pic in pic3D]
-                laplace_vals_norm = [val/sum(laplace_vals) for val in laplace_vals]
-                teng_diff = list(np.diff(teng_vals))
-                laplace_diff = list(np.diff(laplace_vals))
-                teng_sign = []
-                # for val in teng_diff:
-                #     if val < 0:
-                #         teng_sign.append('Neg')
-                #     elif val > 0:
-                #         teng_sign.append('Pos')
-                #     else:
-                #         teng_sign.append(None)
-                print(teng_sign)
-                print(teng_diff.index(min(teng_diff))+1)
-                print(laplace_diff.index(min(laplace_diff))+1)
-                plt.plot(teng_vals_norm)
-                plt.plot(laplace_vals_norm)
-                plt.show()
-                plt.clf()
-            #COULD BE INTERESTING
-            def fourier_map(pic3D):
-                z, nrows, ncols = pic3D.shape
-                for plane in pic3D:
-                    f = np.fft.fft2(plane)
-                    fshift = np.fft.fftshift(f)
-                    mag_spec = 20*np.log(np.abs(fshift))
 
-                    crow,ccol = rows//2 , cols//2
-                    fshift[crow-30:crow+30, ccol-30:ccol+30] = 0
-                    f_ishift = np.fft.ifftshift(fshift)
-                    img_back = np.fft.ifft2(f_ishift)
-                    img_back = np.abs(img_back)
-                    # vimage.gen_img(img_back)
-                    print(np.max(img_back))
+            #     laplace_sum = sum(laplace_vals)
+            #     laplace_vals_norm = [val/laplace_sum for val in laplace_vals]
+            #     teng_diff = list(np.diff(teng_vals))
+            #     laplace_diff = list(np.diff(laplace_vals))
+            #     teng_sign = []
+            #     # for val in teng_diff:
+            #     #     if val < 0:
+            #     #         teng_sign.append('Neg')
+            #     #     elif val > 0:
+            #     #         teng_sign.append('Pos')
+            #     #     else:
+            #     #         teng_sign.append(None)
+            #     print(teng_sign)
+            #     print(teng_diff.index(min(teng_diff))+1)
+            #     print(laplace_diff.index(min(laplace_diff))+1)
+            #     plt.plot(teng_vals_norm)
+            #     plt.plot(laplace_vals_norm)
+            #     plt.show()
+            #     plt.clf()
 
-                return img_back
+
+
+
+
             # find_focus(pic3D_rescale)
 
             pic_rescale_focus = pic3D_rescale[focal_plane]
@@ -364,12 +435,7 @@ if image_toggle.lower() not in ('no', 'n'):
             # vimage.image_details(pic3D_norm[9],pic3D_clahe[9],pic3D_rescale[9],pic_canny)
 
 
-            marker_locs = vimage.marker_finder(image = pic3D_norm[0],
-                                               marker = IRISmarker,
-                                               thresh = 0.65,
-                                               gen_mask = False,
-            )
-            marker_dict[spot_pass_str] = marker_locs
+
             # img_rotation = vimage.measure_rotation(marker_dict, spot_pass_str)
             # rotation_dict[spot_pass_str] = img_rotation
 
@@ -407,7 +473,10 @@ if image_toggle.lower() not in ('no', 'n'):
                 spot_coords = (shift_x, shift_y, spot_coords[2])
                 circle_dict[spot_num] = spot_coords
             else:
-                spot_coords = vimage.spot_finder(pic_canny, rad_range=(300,601), Ab_spot=Ab_spot_mode)
+                spot_coords = vimage.spot_finder(pic_canny,
+                                                 rad_range=(300,601),
+                                                 Ab_spot=Ab_spot_mode
+                )
 
                 circle_dict[spot_num] = spot_coords
 
@@ -418,71 +487,31 @@ if image_toggle.lower() not in ('no', 'n'):
             disk_mask = (width**2 + height**2 > rad**2)
             full_mask = disk_mask# + marker_mask
 
-
-
-
             pic_maxmin_masked = np.ma.array(pic_maxmin,
                                             mask = full_mask).filled(fill_value = np.nan)
 #*********************************************************************************************#
             if pass_num > first_scan:
+                particle_mask = vimage.particle_mask_shift(particle_mask, mean_shift)
 
-                vshift = int(np.ceil(mean_shift[0]))
-                hshift = int(np.ceil(mean_shift[1]))
-
-
-                if vshift > 0:
-                    particle_mask = np.delete(particle_mask, np.s_[-abs(vshift):], axis = 0)
-                    particle_mask = np.insert(particle_mask, np.s_[0:abs(vshift)], False, axis = 0)
-                elif vshift < 0:
-                    particle_mask = np.delete(particle_mask, np.s_[0:abs(vshift)], axis = 0)
-                    particle_mask = np.insert(particle_mask, np.s_[-abs(vshift):], False, axis = 0)
-                if hshift > 0:
-                    particle_mask = np.delete(particle_mask, np.s_[-abs(hshift):], axis = 1)
-                    particle_mask = np.insert(particle_mask, np.s_[0:abs(hshift)], False, axis = 1)
-                elif hshift < 0:
-                    particle_mask = np.delete(particle_mask, np.s_[0:abs(hshift)], axis = 1)
-                    particle_mask = np.insert(particle_mask, np.s_[-abs(hshift):], False, axis = 1)
 #*********************************************************************************************#
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
             with warnings.catch_warnings():
                 ##RuntimeWarning ignored: invalid values are expected
                 warnings.simplefilter("ignore")
                 warnings.warn(RuntimeWarning)
-                # if pass_num == 1:
+
                 shapedex = shape_index(pic_rescale_focus)
                 shapedex = np.ma.array(shapedex,mask = full_mask).filled(fill_value = np.nan)
+
                 if pass_num > first_scan:
-                    # pic_rescale_focus = np.ma.array(pic_rescale_focus,mask = particle_mask).filled(fill_value = -1)
+
                     shapedex= np.ma.array(shapedex,mask = particle_mask).filled(fill_value = -1)
 
-            # vimage.gen_img(shapedex)
+
             shapedex_gauss = ndi.gaussian_filter(shapedex, sigma=1)
 
             pix_area = np.count_nonzero(np.invert(np.isnan(shapedex)))
 
             area_sqmm = round((pix_area * conv_factor) * 1e-6, 6)
-
-
 
             maxmin_median = np.nanmedian(pic_maxmin_masked)
             print(maxmin_median)
@@ -492,7 +521,7 @@ if image_toggle.lower() not in ('no', 'n'):
             ridge = 0.5
             sphere = 1
 
-            ridge_thresh = maxmin_median*4
+            ridge_thresh = maxmin_median*3.5
             sphere_thresh = maxmin_median*2
             ridge_thresh_s = maxmin_median*3
 
@@ -516,9 +545,6 @@ if image_toggle.lower() not in ('no', 'n'):
             pic_binary = ndi.morphology.binary_fill_holes(pic_binary)
             # pic_binary = ndi.morphology.binary_dilation(pic_binary).astype(int)
 
-
-            # vimage.gen_img(particle_mask)
-                # sys.exit()
 
 
 #*********************************************************************************************#
@@ -547,12 +573,11 @@ if image_toggle.lower() not in ('no', 'n'):
 
             if pass_num == first_scan:
                 particle_mask = ndi.morphology.binary_dilation(pic_binary, iterations=3)
-                # particle_mask = pic_binary
+
             else:
                 particle_mask = np.add(particle_mask,
                                        ndi.morphology.binary_dilation(pic_binary, iterations=2)
                 )
-                # particle_mask = np.add(particle_mask, pic_binary)
 
 
 #*********************************************************************************************#
@@ -573,18 +598,20 @@ if image_toggle.lower() not in ('no', 'n'):
 
             median_bg_list, bbox_vert_list = [],[]
             for bbox in bbox_list:
-                top_left =  (bbox[0][0]-2, bbox[0][1]-2)
-                top_rt   =  (bbox[0][0]-2, bbox[1][1]+2)
-                bot_rt   =  (bbox[1][0]+2, bbox[1][1]+2)
-                bot_left =  (bbox[1][0]+2, bbox[0][1]-2)
-                bbox_verts = np.array([top_left,top_rt,bot_rt,bot_left])
+
+                bbox_verts = np.array([(bbox[0][0] - 2, bbox[0][1] - 2),
+                                       (bbox[0][0] - 2, bbox[1][1] + 2),
+                                       (bbox[1][0] + 2, bbox[1][1] + 2),
+                                       (bbox[1][0] + 2, bbox[0][1] - 2)
+                ])
                 bbox_vert_list.append(bbox_verts)
 
             shape_df['bbox_verts'] = bbox_vert_list
 
             shape_df.reset_index(drop = True, inplace = True)
 
-            filo_pts_tot,round_pts_tot,max_z,greatest_max,all_int_profiles_z,chisq_list = [],[],[],[],[],[]
+            filo_pts_tot, round_pts_tot, max_z  = [],[],[]
+            greatest_max, all_int_profiles_z, chisq_list = [],[],[]
 
             for coord_array in shape_df.coords:
 
@@ -698,18 +725,22 @@ if image_toggle.lower() not in ('no', 'n'):
             ### Fluorescent File Processer WORK IN PRORGRESS
             #min_sig = 0.9; max_sig = 2; thresh = .12
 #---------------------------------------------------------------------------------------------#
-            if fluor_files:
-                # channel_list = ['A','B','C']
-                for fluor_filename in fluor_files:
-                    fluor_img = skio.imread(fluor_filename)
-                    if mirror.size == fluor_img.size:
-                        fluor_img = fluor_img / mirror
-
-                    fluor_rescale = vgraph.fluor_overlayer(fluor_img, pic_binary,
-                                                           fluor_filename, savedir=fluor_dir
-                    )
-
-
+            # if fluor_files:
+            #     # channel_list = ['A','B','C']
+            #     for fluor_filename in fluor_files:
+            #         fluor_img = skio.imread(fluor_filename)
+            #         if mirror.size == fluor_img.size:
+            #             fluor_img = fluor_img / mirror
+            #
+            #         fluor_rescale = vgraph.fluor_overlayer(fluor_img, pic_binary,
+            #                                                fluor_filename, savedir=fluor_dir
+            #         )
+            #
+            # if (show_filos == True):
+            #     vgraph.filo_image_gen(shape_df, pic_rescale_focus, shapedex, pic_binary,
+            #                          ridge_list, sphere_list, ridge_list_s,
+            #                          cv_cutoff=cv_cutoff, show=True
+            #     )
 
 #*********************************************************************************************#
             valid_shape_df = shape_df[shape_df['cv_bg'] < cv_cutoff]
@@ -717,8 +748,6 @@ if image_toggle.lower() not in ('no', 'n'):
 
 #---------------------------------------------------------------------------------------------#
 
-
-            # filo_ct = len(valid_shape_df[shape_df.filo_score > 0.2])
             total_particles = len(valid_shape_df.perc_contrast)
             kparticle_density = round(total_particles / area_sqmm * 0.001, 2)
 
@@ -738,7 +767,7 @@ if image_toggle.lower() not in ('no', 'n'):
                 # print("Filament histogram generated")
 
 
-            vdata_dict = {'image_name'      : img_name,
+            vdata_dict = {'image_name'     : img_name,
                          'spot_type'       : spot_type,
                          'area_sqmm'       : area_sqmm,
                          'image_shift_RC'  : mean_shift,
@@ -759,12 +788,12 @@ if image_toggle.lower() not in ('no', 'n'):
 
 #---------------------------------------------------------------------------------------------#
         ####Processed Image Renderer
-            pic_to_show = pic3D_rescale[focal_plane]
+            pic_to_show = pic_rescale_focus
 
             vgraph.gen_particle_image(pic_to_show,total_shape_df,spot_coords,
                                       pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
                                       show_particles=show_particles,
-                                      scalebar = 15, markers = marker_locs,
+                                      scalebar=15, markers=marker_locs,
                                       exo_toggle=exo_toggle
             )
 
@@ -773,7 +802,53 @@ if image_toggle.lower() not in ('no', 'n'):
             plt.clf(); plt.close('all')
             print("#*************************************************************************#")
 
+            def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, img_name=''):
 
+                shape_df = shape_df[shape_df.pass_number == pass_num]
+
+                int_df = shape_df.mean_intensity_profile_z.apply(pd.Series)
+                norm_int_df = int_df.sub(int_df[0], axis=0)
+
+                intensity_df= pd.DataFrame({'intensity': int_df.stack(),
+                                            'norm_intensity': norm_int_df.stack()
+
+                })
+                intensity_df['max_z'] = [y for x in [[z]*zslice_count
+                                           for z in shape_df.max_z]
+                                           for y in x
+                ]
+                intensity_df['pc'] = [y for x in [[pc]*zslice_count
+                                        for pc in shape_df.perc_contrast]
+                                        for y in x
+                ]
+
+
+                intensity_df.reset_index(inplace=True)
+
+                intensity_df.rename(index=str, columns={'level_0':'label',
+                                                        'level_1':'z'}, inplace=True)
+                intensity_df['z'] = intensity_df['z'] +1
+
+                intensity_df=intensity_df[(intensity_df.pc >= 5) & (intensity_df.pc <= 80)]
+                intensity_df['pc_bin'] = round(intensity_df.pc*0.02,1)*50
+
+                intensity_df.sort_values(by=['pc'], ascending=False, inplace=True)
+                sns.set_style('darkgrid')
+                sns.lineplot(x='z',
+                             y='norm_intensity',
+                             hue='pc_bin',
+                             markers=True, palette="Blues_r", lw=1,
+                             ci='sd',
+                             data=intensity_df
+                )
+                plt.title(img_name)
+                plt.legend(range(5,85,5),loc='lower left', ncol=2)
+                plt.ylim(min(intensity_df.norm_intensity)+0.1,max(intensity_df.norm_intensity))
+
+                plt.savefig('{}/{}.png'.format(dir, img_name))
+                plt.clf()
+
+            intensity_profile_graph(shape_df, pass_num, zslice_count, vcount_dir, img_name)
 
 #---------------------------------------------------------------------------------------------#
 
@@ -811,8 +886,8 @@ v2combo_list = sorted(glob.glob(chip_name +'*.v2combined.csv'))
 vdata_list = sorted(glob.glob(chip_name +'*.vdata.txt'))
 
 if len(vdata_list) >= (len(iris_txt) * pass_counter):
-    cont_window_str = str(input("\nEnter the minimum and maximum percent intensity values,"\
-                                "separated by a dash.\n"))
+    cont_window_str = str(input("\nEnter the minimum and maximum percent intensity values,"
+                                + " separated by a dash.\n"))
     while "-" not in cont_window_str:
         cont_window_str = str(input("\nPlease enter two values separated by a dash.\n"))
     else:
@@ -847,9 +922,9 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
                                         & (spot_df.scan_number == j)].values[0]
                 area_squm = int(float(area_str)*1e6)
 
-                protohisto_series = v2combo_df.perc_contrast[ (v2combo_df.pass_number == j)
-                                                         &(v2combo_df.perc_contrast <= max_cont)
-                                                         &(v2combo_df.cv_bg < cv_cutoff)
+                protohisto_series = v2combo_df.perc_contrast[(v2combo_df.pass_number == j)
+                                                             &(v2combo_df.perc_contrast <= max_cont)
+                                                             &(v2combo_df.cv_bg < cv_cutoff)
                 ]
 
                 csv_id = '{}.{}.{}'.format(csvfile.split(".")[1], vpipes.three_digs(j), area_squm)
@@ -886,9 +961,9 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
 elif len(vdata_list) != (len(iris_txt) * pass_counter):
     exit
 
-
 spot_df, histogram_dict = vquant.spot_remover(spot_df, histogram_dict,
-                                              vdata_list, vcount_dir,iris_path, quarantine_img=False
+                                              vdata_list, vcount_dir,
+                                              iris_path, quarantine_img=False
 )
 
 vhf_colormap = ('#e41a1c',
@@ -974,9 +1049,7 @@ if (pass_counter > 1):# &(min_cont == 0):
 
         plt.yticks(np.arange(0, histo_max, y_grid), size = 12)
         plt.xlabel("Contrast (%)", size = 14)
-        # if (len(bin_array) >= 100) & (len(bin_array) < 200): x_grid = 10
-        # elif len(bin_array) >= 200: x_grid = 20
-        # else: x_grid = 5
+
         xgrid = len(bin_array) // 10
         xlabels = np.append(bin_array, max_cont)[::xgrid]
         plt.xticks(xlabels, size = 12, rotation = 90)
@@ -1004,14 +1077,17 @@ if pass_counter > 2:
     )
 elif pass_counter <= 2:
     vgraph.generate_barplot(spot_df, pass_counter, cont_window,
-                            chip_name, sample_name, vhf_colormap, version, plot_3sigma=True,
-                            savedir=virago_dir
+                            chip_name, sample_name, vhf_colormap, version,
+                            plot_3sigma=True, savedir=virago_dir
     )
 
 vgraph.chipArray_graph(spot_df, vhf_colormap,
                       chip_name=chip_name, sample_name=sample_name, cont_str=cont_str,
-                      exo_toggle=exo_toggle, savedir=virago_dir, version=version)
+                      exo_toggle=exo_toggle, savedir=virago_dir, version=version
+)
 
-spot_df_name='{}/{}_spot_data.{}contrast.v{}.csv'.format(virago_dir,chip_name,cont_window_str,version)
+spot_df_name='{}/{}_spot_data.{}contrast.v{}.csv'.format(virago_dir, chip_name,
+                                                         cont_window_str, version
+)
 spot_df.to_csv(spot_df_name)
 print('File generated: {}'.format(spot_df_name))
