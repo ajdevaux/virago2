@@ -12,7 +12,11 @@ from skimage.exposure import rescale_intensity
 import seaborn as sns
 import warnings
 from modules.vimage import gen_img
+import sys
 
+"""
+A suite of graphing subroutines for IRIS images
+"""
 #*********************************************************************************************#
 def _color_mixer(zlen,c1,c2,c3,c4):
     """A function to create color gradients from 4 input colors"""
@@ -97,61 +101,48 @@ def gen_particle_image(pic_to_show, shape_df, spot_coords, pix_per_um, cv_cutoff
 
     axes.imshow(pic_to_show, cmap=plt.cm.gray)
 
-    ab_spot=plt.Circle((cx, cy), rad, color='#5A81BB',
-                         linewidth=5, fill=False, alpha=0.5
-    )
+    ab_spot=plt.Circle((cx, cy), rad, color='#5A81BB', linewidth=5, fill=False, alpha=0.5)
     axes.add_patch(ab_spot)
+
     if markers != []:
         for coords in markers:
             mark_box=plt.Rectangle((coords[1]-58,coords[0]-78), 114, 154,
                                       fill=False, ec='green', lw=1)
             axes.add_patch(mark_box)
-    if (show_particles == True) & (current_pass > 0):
+    if show_particles == True:
         patch_settings=dict(fill=False, linewidth=1, alpha=0.75)
         line_settings=dict(lw=1,color='purple',alpha=0.6)
 
-        # total_passes=np.max(shape_df.pass_number)
-
         for val in curr_pass_df.index.values:
             filo_score=curr_pass_df.filo_score.loc[val]
-            # pass_num=curr_pass_df.pass_number.loc[val]
-            #
-            # if (pass_num == total_passes):
-            #     color='c'
-            #     alpha=0.75
-            # else:
-            #     color='r'
-            #     alpha=0.45
 
             box=curr_pass_df.bbox_verts.loc[val]
-            # low_left_xy  =  (box[3][1], box[3][0])
-            # up_left_xy =  (box[0][1], box[0][0])
-            # low_rt_xy  =  (box[2][1], box[2][0])
-            # up_rt_xy   =  (box[1][1], box[1][0])
             if curr_pass_df.cv_bg.loc[val] >= cv_cutoff:
                 line1=lines.Line2D([box[3][1],box[1][1]],[box[3][0],box[1][0]], **line_settings)
                 line2=lines.Line2D([box[0][1],box[2][1]],[box[0][0],box[2][0]], **line_settings)
                 axes.add_line(line1)
                 axes.add_line(line2)
 
+            elif not np.any(np.isnan(curr_pass_df.vertices.loc[val])):# & (show_filos == True):
+                v1, v2 =curr_pass_df.vertices.loc[val]
 
-
+                # axes.scatter(v1[1],v1[0], marker='v', s=2, color='y')
+                # axes.scatter(v2[1],v2[0], marker='^', s=2, color='m')
 
             else:
                 pc=curr_pass_df.perc_contrast.loc[val]
                 centroid=curr_pass_df.centroid.loc[val]
-                chisq=curr_pass_df.chisq.loc[val]
+
                 if exo_toggle == True: circ_radius = pc*0.5
                 else: circ_radius = pc*3
-                if chisq < 0.075: chicolor='cyan'
-                else: chicolor='red'
 
-                round_circ=plt.Circle((centroid[1], centroid[0]),
-                                      circ_radius, color=chicolor, **patch_settings
-                )
-                axes.add_patch(round_circ)
-                axes.text(y=centroid[0], x=centroid[1], s=str(round(pc,2)),
-                         color='red', fontsize='8', horizontalalignment='right')
+                # round_circ=plt.Circle((centroid[1], centroid[0]),
+                #                       circ_radius, color='green', **patch_settings
+                # )
+                # axes.add_patch(round_circ)
+                # axes.scatter(centroid[1], centroid[0], marker='+', s=2, color='c')
+                # axes.text(y=centroid[0], x=centroid[1], s=str(round(pc,0)),
+                #          color='red', fontsize='7', horizontalalignment='right')
 
     if scalebar > 0:
         scalebar_len_pix=pix_per_um * scalebar
@@ -429,63 +420,51 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
     patch_settings=dict(fill=False, linewidth=1, alpha=0.75)
     line_settings=dict(lw=1,color='purple',alpha=0.6)
     scatter_settings=dict(s=12, linewidths=0)
+    filo_df = shape_df[pd.notna(shape_df.vertices)]
 
-    for val in shape_df.index.values:
-        filo_score = shape_df.filo_score.loc[val]
-        # perim_area_ratio=shape_df.perim_area_ratio.loc[val]
-        # elong=shape_df.elongation.loc[val]
-        verts    = shape_df.vertices[val]
-        box      = shape_df.bbox_verts.loc[val]
-        centroid = shape_df.centroid.loc[val]
-        pc       = shape_df.perc_contrast.loc[val]
-        centroid = shape_df.centroid.loc[val]
-        filo_len = shape_df.filo_lengths.loc[val]
+    # c1,c2 = map(list, zip(*shape_df.centroid))
+    v1,v2 = map(np.array, zip(*filo_df.vertices))
 
-        if (filo_score > 0.2):
-            color='r'
-        elif (filo_score <= 0.1):
-            color='c'
-        else: color='y'
+    if not v1.size == 0:
+        # v1 = np.array(v1); v2 = np.array(v2)
+        ax1.scatter(v1[:,1], v1[:,0], color='r', marker='v')
+        ax1.scatter(v2[:,1], v2[:,0], color='magenta', marker='+')
 
-        # low_left_xy  =  (box[3][1], box[3][0])
-        # up_left_xy =  (box[0][1], box[0][0])
-        # low_rt_xy  =  (box[2][1], box[2][0])
-        # up_rt_xy   =  (box[1][1], box[1][0])
-
-        # ax1.scatter(w_centroid[1],w_centroid[0], color='g', marker='+')
-
-        # if shape_df.cv_bg.loc[al] >= cv_cutoff:
-        # if filo_score < 0.2:
-            # line1=lines.Line2D([box[3][1],box[1][1]],[box[3][0],box[1][0]], **line_settings)
-            # line2=lines.Line2D([box[0][1],box[2][1]],[box[0][0],box[2][0]], **line_settings)
-            # ax1.add_line(line1)
-            # ax1.add_line(line2)
-        # elif not np.isnan(verts).any():
+    for t in filo_df.index.values:
+        # print(filo_df.centroid[t][1], filo_df.centroid[t][0], filo_df.filo_lengths[t])
+        ax1.text(y=filo_df.centroid[t][0], x=filo_df.centroid[t][1], s=str(filo_df.filo_lengths[t]),
+                 color='red', fontsize='9', horizontalalignment='right')
 
 
-        if not verts is np.nan:
 
-            # centroid=shape_df.centroid.loc[val]
-            # round_circ=plt.Circle((centroid[1], centroid[0]),
-            #                          shape_df.perc_contrast.loc[val]*3,
-            #                          color=color, **patch_settings
-            # )
+    # for val in shape_df.index.values:
+    #     filo_score = shape_df.filo_score.loc[val]
+    #     centroid = shape_df.centroid.loc[val]
+    #     pc       = shape_df.perc_contrast.loc[val]
+    #
+    #     if (filo_score > 0.2):
+    #         color='r'
+    #     elif (filo_score <= 0.1):
+    #         color='c'
+    #     else: color='y'
+    #
+    #
+    #     if not np.any(np.isnan(shape_df.vertices.loc[val])):
+    #         pass
+    #         # v1,v2 = shape_df.vertices.loc[val]
+    #         # filo_len = shape_df.filo_lengths.loc[val]
+    #         #
+    #         # ax1.scatter(v1[1],v1[0], color='r', marker='v')
+    #         # ax1.scatter(v2[1],v2[0], color='magenta', marker='+')
+    #
+    #         # print(centroid)
+    #         # ax1.text(y=centroid[0], x=centroid[1], s=str(round(filo_len,2)),
+    #         #          color='red', fontsize='10', horizontalalignment='right')
+    #
+    #     else:
+    #         pass
+            # round_circ=plt.Circle((centroid[1], centroid[0]), 2, c=color, **patch_settings )
             # ax1.add_patch(round_circ)
-            ax1.scatter(int(verts[0][1]),int(verts[0][0]), color='red', marker='.')
-            ax1.scatter(int(verts[1][1]),verts[1][0], color='magenta', marker='+')
-
-
-
-            ax1.text(y=centroid[0], x=centroid[1], s=str(round(filo_len,2)),
-                     color='red', fontsize='10', horizontalalignment='right')
-
-        else:
-            round_circ=plt.Circle((centroid[1], centroid[0]),
-                                     pc*0.5,
-                                     color=color,
-                                     **patch_settings
-            )
-            ax1.add_patch(round_circ)
             # ax1.scatter(centroid[1],centroid[0], **scatter_settings, color=color, marker='o')
 
     ax2=fig.add_subplot(1, 3, 2, sharex=ax1, sharey=ax1)
@@ -500,21 +479,21 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
     ax3.axis('off')
     ax3.set_title('Scored Binary Image', fontsize=18)
 
-
-    ridge_y,ridge_x=zip(*ridge_list)
-    ax3.scatter(ridge_x,ridge_y, color='magenta', **scatter_settings, marker='^')
-
-    sphere_y, sphere_x=zip(*sphere_list)
-    ax3.scatter(sphere_x, sphere_y, color='cyan', **scatter_settings, marker='o')
-
-    ridge_y_s, ridge_x_s=zip(*ridge_list_s)
-    ax3.scatter(ridge_x_s,ridge_y_s, color='purple', **scatter_settings, marker='^')
-
+    if not ridge_list == []:
+        ridge_y,ridge_x = zip(*ridge_list)
+        ax3.scatter(ridge_x,ridge_y, color='magenta', **scatter_settings, marker='^')
+    if not sphere_list == []:
+        sphere_y,sphere_x = zip(*sphere_list)
+        ax3.scatter(sphere_x, sphere_y, color='cyan', **scatter_settings, marker='o')
+    if not ridge_list_s == []:
+        ridge_y_s,ridge_x_s = zip(*ridge_list_s)
+        ax3.scatter(ridge_x_s,ridge_y_s, color='purple', **scatter_settings, marker='^')
 
     fig.tight_layout()
     if show == True:
         plt.show()
     plt.clf()
+    # sys.exit()
 #*********************************************************************************************#
 def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
                     sample_name ='',exo_toggle=False, cont_str='', version='',
@@ -622,25 +601,25 @@ def fluor_overlayer(fluor_img, vis_img, fluor_filename, savedir=''):
 
     return fluor_rescale
 #*********************************************************************************************#
-def intensity_profile_graph(shape_df, pass_num,zslice_count, img_name):
-    # df_len = len(shape_df)
-
-    shape_df=shape_df[shape_df.pass_number == pass_num]
-    # for arr in shape_df['mean_intensity_profile_z']:
-    intensity_df= pd.DataFrame({'intensity':shape_df.mean_intensity_profile_z.apply(pd.Series).stack()
-    })
-    intensity_df['max_z'] = [y for x in [[z]*zslice_count for z in shape_df.max_z] for y in x]
-    intensity_df.reset_index(inplace=True)
-    intensity_df.rename(index=str, columns={'level_1': 'z'}, inplace=True)
-    intensity_df['z'] = intensity_df['z'] +1
-
-    sns.set_style('darkgrid')
-    sns.lineplot(x='z',
-                 y='intensity',
-                 hue='max_z',
-                 markers=True,palette="ch:2.5,.25", lw=1,
-                 ci='sd',
-                 data=intensity_df
-    )
-    plt.title(img_name)
-    plt.show()
+# def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, img_name=''):
+#     # df_len = len(shape_df)
+#
+#     shape_df=shape_df[shape_df.pass_number == pass_num]
+#     # for arr in shape_df['mean_intensity_profile_z']:
+#     intensity_df= pd.DataFrame({'intensity':shape_df.mean_intensity_profile_z.apply(pd.Series).stack()
+#     })
+#     intensity_df['max_z'] = [y for x in [[z]*zslice_count for z in shape_df.max_z] for y in x]
+#     intensity_df.reset_index(inplace=True)
+#     intensity_df.rename(index=str, columns={'level_1': 'z'}, inplace=True)
+#     intensity_df['z'] = intensity_df['z'] +1
+#
+#     sns.set_style('darkgrid')
+#     sns.lineplot(x='z',
+#                  y='intensity',
+#                  hue='max_z',
+#                  markers=True,palette="ch:2.5,.25", lw=1,
+#                  ci='sd',
+#                  data=intensity_df
+#     )
+#     plt.title(img_name)
+#     plt.savefig('{}/{}'.format(img_name, dir))

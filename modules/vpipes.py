@@ -42,7 +42,8 @@ def chipFile_reader(chipFile, remove_jargon = True):
                    '13F6': r'$\alpha$'+'-EBOV', '127-8': r'$\alpha$'+'-MARV', 'AGP127-8':r'$\alpha$'+'-MARV',
                    '6D8': r'$\alpha$'+'-EBOV', '8.9F': r'$\alpha$'+'-LASV',
                    '8G5': r'$\alpha$'+'-VSV', '4F3': r'$\alpha$'+'-EBOV',
-                   '13C6': r'$\alpha$'+'-EBOV'
+                   '13C6': r'$\alpha$'+'-EBOV', '40-3': r'$\alpha$'+'-IAV-H3Nx',
+                   'pa1-7221': r'$\alpha$'+'-H1N1',  'pa1-7222': r'$\alpha$'+'-H3N2'
                    }
     mAb_dict = {}
     for q, spot in enumerate(chipFile):
@@ -69,9 +70,12 @@ def chipFile_reader(chipFile, remove_jargon = True):
     return mAb_dict, mAb_dict_rev
 #*********************************************************************************************#
 def sample_namer(iris_path):
-    if sys.platform == 'win32': folder_name = iris_path.split("\\")[-1]
-    elif sys.platform == 'darwin': folder_name = iris_path.split("/")[-1]
+    if sys.platform == 'win32':
+        folder_name = iris_path.split("\\")[-1]
+    elif sys.platform == 'darwin':
+        folder_name = iris_path.split("/")[-1]
     else: folder_name = ''
+
     if len(folder_name.split("_")) == 2:
         sample_name = folder_name.split("_")[-1]
     else:
@@ -207,13 +211,13 @@ def version_finder(version):
 
     return int(major), int(minor), int(micro)
 #*********************************************************************************************#
-def pgm_to_tiff(pic3D, img_name, stack_list, archive_pgm=False):
+def pgm_to_tiff(pic3D, img_name, stack_list, tiff_compression = 1, archive_pgm=False):
     # stack_name = '.'.join(pgm_name[:-2])
     tiff_name = img_name + '.tif'
 
     with TiffWriter(tiff_name, imagej=True) as tif_img:
         for i in range(pic3D.shape[0]):
-            tif_img.save(pic3D[i], compress = 1)
+            tif_img.save(pic3D[i], compress = tiff_compression)
         print("TIFF file generated: {}".format(tiff_name))
 
     if archive_pgm == True:
@@ -221,7 +225,7 @@ def pgm_to_tiff(pic3D, img_name, stack_list, archive_pgm=False):
     for pgm in stack_list:
         os.remove(pgm)
 #*********************************************************************************************#
-def tiff_maker(pgm_list, archive = True):
+def tiff_maker(pgm_list, tiff_compression = 1, archive = True):
     chip_name = pgm_list[0].split(".")[0]
 
     pgm_list, mirror = mirror_finder(pgm_list)
@@ -246,6 +250,7 @@ def tiff_maker(pgm_list, archive = True):
 
         pps_list = sorted([file for file in pgm_set if int(file.split(".")[1]) == spot_to_scan])
         passes_per_spot = len(pps_list)
+
         if passes_per_spot == 0:
             print("No pgm files for spot {} \n".format(spot_to_scan))
 
@@ -253,13 +258,13 @@ def tiff_maker(pgm_list, archive = True):
             for scan in range(0,passes_per_spot,1):
 
                 stack_list = [file for file in pgm_list if file.startswith(pps_list[scan])]
-
-                scan_collection = skio.imread_collection(stack_list)
                 pgm_name = ".".join(stack_list[0].split(".")[:3])
 
-                pic3D = np.array([pic for pic in scan_collection], dtype='uint16')
+                pic3D = np.array([pic for pic in skio.imread_collection(stack_list)],
+                                 dtype='uint16')
 
-                pgm_to_tiff(pic3D, pgm_name, stack_list, archive_pgm=archive)
+                pgm_to_tiff(pic3D, pgm_name, stack_list,
+                            tiff_compression = tiff_compression, archive_pgm=archive)
 
         spot_to_scan += 1
 

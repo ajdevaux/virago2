@@ -59,7 +59,7 @@ def vdata_reader(vdata_list, prop_list):
             full_text = {}
             with open(file) as f:
                 for line in f:
-                    # key, val = line.split(":")
+
                     full_text[line.split(":")[0]] = line.split(":")[1].strip(' \n')
                 data = full_text[prop]
 
@@ -72,7 +72,7 @@ def vdata_reader(vdata_list, prop_list):
                 else: data = False
 
             d_list.append(data)
-        # print(d_list)
+
         vdata_dict[prop] = d_list
 
     return vdata_dict
@@ -89,10 +89,8 @@ def shape_factor_reciprocal(area_list, perim_list):
     return roundness
 #*********************************************************************************************#
 def measure_filo_length(coords, pix_per_um):
-    sparse_matrix = csr_matrix(squareform(pdist(coords, metric='euclidean')))
-    distances     = csgraph.shortest_path(sparse_matrix, method = 'FW',
-                                          return_predecessors=False
-    )
+    sparse_matrix = csr_matrix(squareform(pdist(coords,metric='euclidean')))
+    distances     = csgraph.shortest_path(sparse_matrix,method = 'FW',return_predecessors=False)
     ls_path       = np.max(distances)
     farpoints     = np.where(distances == ls_path)
     filo_len      = float(round(ls_path / pix_per_um, 3))
@@ -105,11 +103,11 @@ def measure_max_intensity_stack(pic3D, coord_array):
     for coords in coord_array:
         pixel_stack = pic3D[:, coords[0], coords[1]]
 
-        pix_max, pix_min = np.max(pixel_stack), np.min(pixel_stack)
+        pix_max = np.max(pixel_stack)
+        # pix_min = np.min(pixel_stack)
         pix_max_list.append(pix_max)
 
-        z = (np.where(pixel_stack==pix_max)[0][0])+1
-        z_list.append(z)
+        z_list.append((np.where(pixel_stack == pix_max)[0][0]) + 1)
 
     return pix_max_list, z_list
 #*********************************************************************************************#
