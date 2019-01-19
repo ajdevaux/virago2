@@ -43,7 +43,9 @@ def chipFile_reader(chipFile, remove_jargon = True):
                    '6D8': r'$\alpha$'+'-EBOV', '8.9F': r'$\alpha$'+'-LASV',
                    '8G5': r'$\alpha$'+'-VSV', '4F3': r'$\alpha$'+'-EBOV',
                    '13C6': r'$\alpha$'+'-EBOV', '40-3': r'$\alpha$'+'-IAV-H3Nx',
-                   'pa1-7221': r'$\alpha$'+'-H1N1',  'pa1-7222': r'$\alpha$'+'-H3N2'
+                   'PA1-7221': r'$\alpha$'+'-H1N1',  'PA1-7222': r'$\alpha$'+'-H3N2',
+                   'MOUSE ISOTYPE CONTROL': 'muIgG', 'CD81': r'$\alpha$'+'-CD81',
+                   'CD63': r'$\alpha$'+'-CD63', 'CD9': r'$\alpha$'+'-CD9'
                    }
     mAb_dict = {}
     for q, spot in enumerate(chipFile):
@@ -61,11 +63,7 @@ def chipFile_reader(chipFile, remove_jargon = True):
                 new_name = mAb_name
         mAb_dict[q + 1] = new_name, xloc, yloc, spot_height
 
-    mAb_dict_rev = {}
-    for key, val in mAb_dict.items():
-        rev_key = val[0]
-        mAb_dict_rev[rev_key] = mAb_dict_rev.get(val, [])
-        mAb_dict_rev[rev_key].append(key)
+    mAb_dict_rev = {val[0]: key for key, val in mAb_dict.items()}
 
     return mAb_dict, mAb_dict_rev
 #*********************************************************************************************#
@@ -201,6 +199,7 @@ def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict,vcount_dir):
                          'valid'           : False,
                          'VIRAGO_version'  : 'N/A'
     }
+
     with open('{}/{}.vdata.txt'.format(vcount_dir,bad_scan),'w') as f:
         for k,v in missing_vdata_dict.items():
             f.write('{}: {}\n'.format(k,v))
@@ -233,6 +232,8 @@ def tiff_maker(pgm_list, tiff_compression = 1, archive = True):
     if fluor_files:
         pgm_list = [file for file in pgm_list if file not in fluor_files]
         print("Fluorescent channel(s) detected, will not be converted to TIFF\n")
+
+
 
     pgm_set = set([".".join(file.split(".")[:3]) for file in pgm_list])
 

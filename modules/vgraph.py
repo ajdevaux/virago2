@@ -85,11 +85,8 @@ def _circle_particles(particle_df, axes, exo_toggle):
     plt.ylabel("PARTICLE COUNT", color='w')
 #*********************************************************************************************#
 def gen_particle_image(pic_to_show, shape_df, spot_coords, pix_per_um, cv_cutoff,
-                        show_particles=True, scalebar=0, markers=[], exo_toggle=False):
+                        r2_cutoff, show_particles=True, scalebar=0, markers=[], exo_toggle=False):
     nrows, ncols=pic_to_show.shape
-    try: current_pass = max(shape_df.pass_number)
-    except ValueError: current_pass = 0
-    curr_pass_df = shape_df[shape_df.pass_number == current_pass]
 
     cx,cy,rad=spot_coords
     true_radius=round((rad - 20) / pix_per_um,2)
@@ -110,39 +107,53 @@ def gen_particle_image(pic_to_show, shape_df, spot_coords, pix_per_um, cv_cutoff
                                       fill=False, ec='green', lw=1)
             axes.add_patch(mark_box)
     if show_particles == True:
+        try: current_pass = max(shape_df.pass_number)
+        except ValueError: current_pass = 0
+        curr_pass_df = shape_df[shape_df.pass_number == current_pass]
+
         patch_settings=dict(fill=False, linewidth=1, alpha=0.75)
         line_settings=dict(lw=1,color='purple',alpha=0.6)
 
         for val in curr_pass_df.index.values:
-            filo_score=curr_pass_df.filo_score.loc[val]
+            filo_score, bbox, cv_bg, r2, pc, centroid = curr_pass_df[['filo_score','bbox_verts',
+                                                                      'cv_bg','r2_corr',
+                                                                      'perc_contrast',
+                                                                      'centroid']].loc[val]
+            lowleft_x = bbox[0][1]
+            lowleft_y = bbox[0][0]
 
-            box=curr_pass_df.bbox_verts.loc[val]
-            if curr_pass_df.cv_bg.loc[val] >= cv_cutoff:
-                line1=lines.Line2D([box[3][1],box[1][1]],[box[3][0],box[1][0]], **line_settings)
-                line2=lines.Line2D([box[0][1],box[2][1]],[box[0][0],box[2][0]], **line_settings)
+            if (cv_bg >= cv_cutoff) | (r2 < r2_cutoff):
+                line1=lines.Line2D([bbox[3][1],bbox[1][1]],[bbox[3][0],bbox[1][0]], **line_settings)
+                line2=lines.Line2D([lowleft_x, bbox[2][1]],[lowleft_y, bbox[2][0]], **line_settings)
                 axes.add_line(line1)
                 axes.add_line(line2)
 
-            elif not np.any(np.isnan(curr_pass_df.vertices.loc[val])):# & (show_filos == True):
-                v1, v2 =curr_pass_df.vertices.loc[val]
-
-                # axes.scatter(v1[1],v1[0], marker='v', s=2, color='y')
-                # axes.scatter(v2[1],v2[0], marker='^', s=2, color='m')
+            # elif not np.any(np.isnan(curr_pass_df.vertices.loc[val])):# & (show_filos == True):
+            #     v1, v2 =curr_pass_df.vertices.loc[val]
 
             else:
-                pc=curr_pass_df.perc_contrast.loc[val]
-                centroid=curr_pass_df.centroid.loc[val]
+                # bbox = curr_pass_df.bbox_verts.loc[val]
+                # lowleft_x = bbox[0][1]
+                # lowleft_y = bbox[0][0]
+                box_w = bbox[2][1] - lowleft_x
+                box_h = bbox[2][0] - lowleft_y
+                particle_box = plt.Rectangle((lowleft_x-1,lowleft_y-2), box_w, box_h,
+                                              fill=False, color='r', alpha=0.5)
+                axes.add_patch(particle_box)
 
-                if exo_toggle == True: circ_radius = pc*0.5
-                else: circ_radius = pc*3
+                # pc=curr_pass_df.perc_contrast.loc[val]
+                # centroid=curr_pass_df.centroid.loc[val]
+
+                # if exo_toggle == True: circ_radius = pc*0.25
+                # else: circ_radius = pc*3
 
                 # round_circ=plt.Circle((centroid[1], centroid[0]),
-                #                       circ_radius, color='green', **patch_settings
+                #                       circ_radius, color='c', **patch_settings
                 # )
                 # axes.add_patch(round_circ)
                 # axes.scatter(centroid[1], centroid[0], marker='+', s=2, color='c')
-                # axes.text(y=centroid[0], x=centroid[1], s=str(round(pc,0)),
-                #          color='red', fontsize='7', horizontalalignment='right')
+                axes.text(y=centroid[0], x=centroid[1], s=str(round(pc,1)),
+                         color='c', fontsize='6', alpha = 0.8, horizontalalignment='right')
 
     if scalebar > 0:
         scalebar_len_pix=pix_per_um * scalebar
@@ -221,9 +232,9 @@ def sum_histogram(raw_histogram_df, spot_counter, pass_counter):
     return sum_histogram_df
 #*********************************************************************************************#
 def average_histogram(sum_histogram_df, spot_df, pass_counter, smooth_window=7):
-    avg_histogram_df=sum_histogram_df['bins']
+    avg_histogram_df = sum_histogram_df['bins']
     spot_type_list = []
-    spot_df = spot_df[spot_df.valid==True]
+    spot_df = spot_df[spot_df.validity==True]
     for val in spot_df.spot_type:
         if val not in spot_type_list: spot_type_list.append(val)
     for x in range(2,pass_counter+1):
@@ -253,6 +264,70 @@ def average_histogram(sum_histogram_df, spot_df, pass_counter, smooth_window=7):
 
     return avg_histogram_df
 #*********************************************************************************************#
+def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, exo_toggle, img_name=''):
+
+    shape_df = shape_df[shape_df.pass_number == pass_num]
+
+    int_df = shape_df.z_stack.apply(pd.Series)
+    norm_int_df = int_df.sub(int_df[0], axis=0)
+
+    # max_col, min_col = int_df[int_df == int_df.max(axis=0)], int_df.min(axis=0)
+    # # max_z = z_stack.index(maxa)
+    # # intensity = round(maxa - mina,5)
+    # for column in int_df:
+    #
+    #
+    #
+    # basedex = ( + z_stack.index(mina)) // 2
+    # y_data = list(map(lambda x: x - z_stack[basedex], z_stack))
+
+    intensity_df= pd.DataFrame({'intensity': int_df.stack(),
+                                'norm_intensity': norm_int_df.stack()
+
+    })
+    intensity_df['pc'] = [y for x in [[pc]*zslice_count
+                            for pc in shape_df.perc_contrast]
+                            for y in x
+    ]
+
+    intensity_df.reset_index(inplace=True)
+
+    intensity_df.rename(index=str, columns={'level_0':'label',
+                                            'level_1':'z'}, inplace=True)
+    intensity_df['z'] = intensity_df['z'] + 1
+
+    if exo_toggle == True:
+        plot0, plot1, plot2 = (5,80,5)
+        intensity_df = intensity_df[(intensity_df.pc >= plot0)
+                                    & (intensity_df.pc <= plot1)
+        ]
+        intensity_df['pc_bin'] = round(intensity_df.pc*0.02,1)*50
+    else:
+        plot0, plot1, plot2 = (0.5,10, 0.1)
+        intensity_df = intensity_df[(intensity_df.pc >= plot0)
+                                    & (intensity_df.pc <= plot1)
+        ]
+        intensity_df['pc_bin'] = round(intensity_df.pc,1)
+
+    intensity_df.sort_values(by=['pc'], ascending=False, inplace=True)
+    if len(intensity_df) > 0:
+        sns.set_style('darkgrid')
+        sns.lineplot(x='z',
+                     y='norm_intensity',
+                     hue='pc_bin',
+                     markers=True, palette="Blues_r", lw=1,
+                     ci='sd',
+                     data=intensity_df
+        )
+        plt.title(img_name)
+        # plt.legend(np.arange(plot0,plot1,plot2),loc='lower left', ncol=2)
+        # plt.ylim(min(intensity_df.norm_intensity),max(intensity_df.norm_intensity))
+        # plt.show()
+        plt.savefig('{}/{}.png'.format(dir, img_name))
+        plt.clf()
+    else:
+        print("No valid particles to graph the profile of\n")
+#*********************************************************************************************#
 def average_spot_data(spot_df, pass_counter):
     """Creates a dataframe containing the average data for each antibody spot type"""
     averaged_df=pd.DataFrame()
@@ -262,7 +337,7 @@ def average_spot_data(spot_df, pass_counter):
             spot_list.append(val)
 
     for i, spot in enumerate(spot_list):
-        sub_df=spot_df[(spot_df.spot_type == spot_list[i]) & (spot_df.valid == True)]
+        sub_df=spot_df[(spot_df.spot_type == spot_list[i]) & (spot_df.validity == True)]
         avg_time, avg_kpd, avg_nd, std_kpd, std_nd=[],[],[],[],[]
         for i in range(1,pass_counter+1):
             subsub_df=sub_df[sub_df.scan_number == i]
@@ -314,7 +389,7 @@ def generate_timeseries(spot_df, averaged_df, cont_window, mAb_dict,
             c += 1
 
         solo_spot_df=spot_df[(spot_df.spot_number == key)
-                                & (spot_df.valid == True)].reset_index(drop=True)
+                                & (spot_df.validity == True)].reset_index(drop=True)
         print(solo_spot_df)
         if not solo_spot_df.empty:
             if scan_or_time == 'scan':   x_axis=solo_spot_df['scan_number']
@@ -364,11 +439,11 @@ def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name
     """
     firstlast_spot_df=spot_df[  ((spot_df.scan_number == 1)
                               | (spot_df.scan_number == pass_counter))
-                              & (spot_df.valid == True)
+                              & (spot_df.validity == True)
     ]
     cont_str='{0}-{1}'.format(*cont_window)
     final_spot_df=spot_df[  (spot_df.scan_number == pass_counter)
-                          & (spot_df.valid == True)
+                          & (spot_df.validity == True)
     ]
 
     fig, (ax1, ax2)=plt.subplots(1, 2, figsize=(8, 6), sharey=True)
@@ -408,8 +483,7 @@ def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name
 #*********************************************************************************************#
 def filo_image_gen(shape_df, pic1, pic2, pic3,
                   ridge_list, sphere_list, ridge_list_s,
-                  cv_cutoff=0.02, show=True
-):
+                  cv_cutoff=0.02, r2_cutoff=0.85, show=True):
 
     fig=plt.figure(figsize=(24, 8))
 
@@ -420,52 +494,36 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
     patch_settings=dict(fill=False, linewidth=1, alpha=0.75)
     line_settings=dict(lw=1,color='purple',alpha=0.6)
     scatter_settings=dict(s=12, linewidths=0)
+
     filo_df = shape_df[pd.notna(shape_df.vertices)]
-
-    # c1,c2 = map(list, zip(*shape_df.centroid))
-    v1,v2 = map(np.array, zip(*filo_df.vertices))
-
-    if not v1.size == 0:
-        # v1 = np.array(v1); v2 = np.array(v2)
+    if not filo_df.empty:
+        v1,v2 = map(np.array, zip(*filo_df.vertices))
         ax1.scatter(v1[:,1], v1[:,0], color='r', marker='v')
         ax1.scatter(v2[:,1], v2[:,0], color='magenta', marker='+')
 
     for t in filo_df.index.values:
-        # print(filo_df.centroid[t][1], filo_df.centroid[t][0], filo_df.filo_lengths[t])
         ax1.text(y=filo_df.centroid[t][0], x=filo_df.centroid[t][1], s=str(filo_df.filo_lengths[t]),
                  color='red', fontsize='9', horizontalalignment='right')
 
+    for i in shape_df.index:
+        bbox, r2, centroid = shape_df[['bbox_verts', 'r2_corr', 'centroid']].loc[i]
 
+        lowleft_x = bbox[0][1]
+        lowleft_y = bbox[0][0]
 
-    # for val in shape_df.index.values:
-    #     filo_score = shape_df.filo_score.loc[val]
-    #     centroid = shape_df.centroid.loc[val]
-    #     pc       = shape_df.perc_contrast.loc[val]
-    #
-    #     if (filo_score > 0.2):
-    #         color='r'
-    #     elif (filo_score <= 0.1):
-    #         color='c'
-    #     else: color='y'
-    #
-    #
-    #     if not np.any(np.isnan(shape_df.vertices.loc[val])):
-    #         pass
-    #         # v1,v2 = shape_df.vertices.loc[val]
-    #         # filo_len = shape_df.filo_lengths.loc[val]
-    #         #
-    #         # ax1.scatter(v1[1],v1[0], color='r', marker='v')
-    #         # ax1.scatter(v2[1],v2[0], color='magenta', marker='+')
-    #
-    #         # print(centroid)
-    #         # ax1.text(y=centroid[0], x=centroid[1], s=str(round(filo_len,2)),
-    #         #          color='red', fontsize='10', horizontalalignment='right')
-    #
-    #     else:
-    #         pass
-            # round_circ=plt.Circle((centroid[1], centroid[0]), 2, c=color, **patch_settings )
-            # ax1.add_patch(round_circ)
-            # ax1.scatter(centroid[1],centroid[0], **scatter_settings, color=color, marker='o')
+        if r2 >= r2_cutoff:
+            color = 'c'
+        else:
+            color = 'k'
+
+        ax1.text(y=centroid[0], x=centroid[1], s=str(r2),
+                 color=color, fontsize='9', horizontalalignment='left')
+
+        particle_box = plt.Rectangle((lowleft_x-1,lowleft_y-2),
+                                      bbox[2][1] - lowleft_x,
+                                      bbox[2][0] - lowleft_y,
+                                      fill=False, color=color, alpha=1)
+        ax1.add_patch(particle_box)
 
     ax2=fig.add_subplot(1, 3, 2, sharex=ax1, sharey=ax1)
 
@@ -503,10 +561,10 @@ def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
     ax = fig.add_subplot(111, projection='3d')
     prescan = min(spot_df.scan_number)
     last_scan = max(spot_df.scan_number)
-    spot_array = np.array(spot_df.spot_number[1::last_scan])
+    spot_array = np.array(spot_df.spot_number[::last_scan])
     total_spots = max(spot_array)
 
-    linx,liny= zip(*(spot_df.chip_coords_xy[1::last_scan]))
+    linx,liny= zip(*(spot_df.chip_coords_xy[::last_scan]))
     linx = np.array(linx,dtype='float') / 1000
     liny = np.array(liny,dtype='float') / 1000
     ax.plot(linx,liny,0, color='k', linewidth=1, linestyle='--', alpha=0.5)
@@ -515,42 +573,62 @@ def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
                 fontsize=8, fontname='monospace',color='k', alpha=1,
                 horizontalalignment='left', verticalalignment='top',
         )
-
-    spot_list=[]
+    spot_list = []
     for val in spot_df.spot_type:
         if val not in spot_list:
             spot_list.append(val)
 
+    dx = dy = 0.08
+    zpos = 0
+    offset = dx * 0.5
+
     for n, spot in enumerate(spot_list):
         prescan_df = spot_df[(spot_df.scan_number==prescan)&(spot_df.spot_type==spot)].reset_index()
-        scan_df = spot_df[(spot_df.scan_number==last_scan)&(spot_df.spot_type==spot)].reset_index()
-        xpos,ypos = zip(*(scan_df.chip_coords_xy))
-        dx=dy=0.04
 
-        xpos=np.array(xpos,dtype='float') / 1000
-        xpos_bar=xpos-(dx/2)
-        ypos=np.array(ypos,dtype='float') / 1000
-        ypos_bar=ypos-(dy/2)
-        zpos=0
-        dz=np.array(scan_df.normalized_density)
+        xpos,ypos = zip(*(prescan_df.chip_coords_xy))
 
-        rad_list = np.sqrt(np.array(scan_df.area,dtype='float')/np.pi)
+
+        xpos = np.array(xpos,dtype='float') * 0.001
+        xpos_bar = xpos - offset
+
+        ypos = np.array(ypos,dtype='float') * 0.001
+        ypos_bar = ypos - offset
+
+        dz_pre = np.array(prescan_df.kparticle_density)
+
+        rad_list = np.sqrt(np.array(prescan_df.area,dtype='float')/np.pi)
+        color = vhf_colormap[n]
         for i,r in enumerate(rad_list):
-            Ab_spot=Circle((xpos[i],ypos[i]),r,facecolor=vhf_colormap[n], edgecolor ='k',alpha=0.4)
+            Ab_spot=Circle((xpos[i],ypos[i]),r,facecolor=color, edgecolor ='k',alpha=0.75)
             ax.add_patch(Ab_spot)
             art3d.pathpatch_2d_to_3d(Ab_spot, z=0, zdir="z")
 
-        bar = ax.bar3d(xpos_bar, ypos_bar, zpos, dx, dy, dz,
-                       color=vhf_colormap[n], edgecolor='k', label=spot, alpha=0.5)
+        prebar = ax.bar3d(xpos_bar, ypos_bar, zpos, dx, dy, dz_pre,
+                         color=color, edgecolor='k', label=spot, alpha=0.15)
         ##bug fixes with matplotlib 3d axes
-        bar._facecolors3d=to_rgba_array(bar._facecolors3d, bar._alpha)
-        bar._edgecolors3d=to_rgba_array(bar._edgecolors3d, bar._alpha)
-        bar._facecolors2d=bar._facecolors3d
-        bar._edgecolors2d=bar._edgecolors3d
+        prebar._facecolors3d=to_rgba_array(prebar._facecolors3d, prebar._alpha)
+        prebar._edgecolors3d=to_rgba_array(prebar._edgecolors3d, prebar._alpha)
+        prebar._facecolors2d=prebar._facecolors3d
+        prebar._edgecolors2d=prebar._edgecolors3d
         ##
-    # surface = Polygon(np.array([[-1000,-750],[-1000,6000],[1000,6000],[1000,-750]]), color='gray')
-    # ax.add_patch(surface)
-    # art3d.pathpatch_2d_to_3d(surface, z=-5, zdir="z")
+        if last_scan > 1:
+            scan_df = spot_df[(spot_df.scan_number==last_scan)&(spot_df.spot_type==spot)].reset_index()
+            dz = np.array(scan_df.normalized_density)
+            dx = dy = 0.04
+            offset = dx * 0.5
+            xpos_bar = xpos - offset
+            ypos_bar = ypos - offset
+
+            bar = ax.bar3d(xpos_bar, ypos_bar, zpos, dx, dy, dz,
+                           color=color, edgecolor='k', label=None, alpha=0.75)
+
+            ##bug fixes with matplotlib 3d axes
+            bar._facecolors3d=to_rgba_array(bar._facecolors3d, bar._alpha)
+            bar._edgecolors3d=to_rgba_array(bar._edgecolors3d, bar._alpha)
+            bar._facecolors2d=bar._facecolors3d
+            bar._edgecolors2d=bar._edgecolors3d
+            ##
+
     tri = Polygon(np.array([[-.25,-.5],[0,0],[.25,-.5]]), color='k')
     ax.add_patch(tri)
     art3d.pathpatch_2d_to_3d(tri, z=0, zdir="z")
@@ -601,25 +679,3 @@ def fluor_overlayer(fluor_img, vis_img, fluor_filename, savedir=''):
 
     return fluor_rescale
 #*********************************************************************************************#
-# def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, img_name=''):
-#     # df_len = len(shape_df)
-#
-#     shape_df=shape_df[shape_df.pass_number == pass_num]
-#     # for arr in shape_df['mean_intensity_profile_z']:
-#     intensity_df= pd.DataFrame({'intensity':shape_df.mean_intensity_profile_z.apply(pd.Series).stack()
-#     })
-#     intensity_df['max_z'] = [y for x in [[z]*zslice_count for z in shape_df.max_z] for y in x]
-#     intensity_df.reset_index(inplace=True)
-#     intensity_df.rename(index=str, columns={'level_1': 'z'}, inplace=True)
-#     intensity_df['z'] = intensity_df['z'] +1
-#
-#     sns.set_style('darkgrid')
-#     sns.lineplot(x='z',
-#                  y='intensity',
-#                  hue='max_z',
-#                  markers=True,palette="ch:2.5,.25", lw=1,
-#                  ci='sd',
-#                  data=intensity_df
-#     )
-#     plt.title(img_name)
-#     plt.savefig('{}/{}'.format(img_name, dir))

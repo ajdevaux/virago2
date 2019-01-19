@@ -51,42 +51,43 @@ def density_normalizer(spot_df, spot_counter):
 
     return [item for sublist in normalized_density for item in sublist]
 #*********************************************************************************************#
-def vdata_reader(vdata_list, prop_list):
-    vdata_dict = {}
-    for prop in prop_list:
-        d_list = []
-        for file in vdata_list:
-            full_text = {}
-            with open(file) as f:
-                for line in f:
+def vdata_reader(vdata_file, vdata_dict, prop_list):
 
-                    full_text[line.split(":")[0]] = line.split(":")[1].strip(' \n')
-                data = full_text[prop]
+    with open(vdata_file) as vdf:
+        for line in vdf:
+            prop, value = line.split(':')
+            value = value.strip(' \n')
 
-            if prop == 'marker_coords_RC':
-                coords_list = list(map(int,re.findall('\d+', data)))
-                if not coords_list == []:
-                    data = [tuple(coords_list[i:i+2]) for i in range(0, len(coords_list), 2)]
-            elif prop == 'valid':
-                if data == 'True': data = True
-                else: data = False
+            if (prop == 'marker_coords_RC') | (prop == 'marker_locs'):
 
-            d_list.append(data)
+                coords_list = list(map(int,re.findall('\d+', value)))
 
-        vdata_dict[prop] = d_list
+                vdata_dict.update({prop: [tuple(coords_list[i:i+2])
+                                          for i in range(0, len(coords_list), 2)
+                                          if not coords_list == []
+                                          ]
+                })
+
+            elif (prop == 'valid') | (prop == 'validity'):
+                if not value == 'True': value = False
+                vdata_dict.update({prop: bool(value)})
+            elif prop in prop_list:
+                vdata_dict.update({prop: value})
+            else:
+                pass
 
     return vdata_dict
 #*********************************************************************************************#
-def shape_factor_reciprocal(area_list, perim_list):
-    """
-    (Perimeter^2) / 4 * PI * Area).
-    This gives the reciprocal value of Shape Factor for those that are used to using it.
-    A circle will have a value slightly greater than or equal to 1.
-    Other shapes will increase in value.
-    """
-    circ_ratio = 4 * np.pi
-    return [(P**2)/(circ_ratio * A) for A,P in zip(area_list,perim_list)]
-    return roundness
+# def shape_factor_reciprocal(area_list, perim_list):
+#     """
+#     (Perimeter^2) / 4 * PI * Area).
+#     This gives the reciprocal value of Shape Factor for those that are used to using it.
+#     A circle will have a value slightly greater than or equal to 1.
+#     Other shapes will increase in value.
+#     """
+#     circ_ratio = 4 * np.pi
+#     return [(P**2)/(circ_ratio * A) for A,P in zip(area_list,perim_list)]
+#     return roundness
 #*********************************************************************************************#
 def measure_filo_length(coords, pix_per_um):
     sparse_matrix = csr_matrix(squareform(pdist(coords,metric='euclidean')))
@@ -104,7 +105,6 @@ def measure_max_intensity_stack(pic3D, coord_array):
         pixel_stack = pic3D[:, coords[0], coords[1]]
 
         pix_max = np.max(pixel_stack)
-        # pix_min = np.min(pixel_stack)
         pix_max_list.append(pix_max)
 
         z_list.append((np.where(pixel_stack == pix_max)[0][0]) + 1)

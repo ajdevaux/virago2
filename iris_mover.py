@@ -1,27 +1,6 @@
 import os, glob, sys, re
 from modules.vpipes import tiff_maker
-# import numpy as np
-# from modules.vpipes import chip_file_reader, sample_namer, zipper
-# from skimage import io as skio
 
-# def iris_renamer(filelist, number):
-#     number = str(number)
-#     # digits = len(number)
-#     files_to_rename = [file for file in filelist if len(file.split(".")) > 3]
-#     mirror_file = str(glob.glob('*000.pgm')).strip("'[]'")
-#     if mirror_file:
-#         files_to_rename.remove(mirror_file)
-#     print(files_to_rename)
-#     toggle = input("OK to rename " + str(len(files_to_rename)) + " files? (y/[n])\t")
-#     if toggle not in ("n", "no"):
-#
-#         for file in files_to_rename:
-#             parsed_file = file.split(".")
-#             if parsed_file[2].isdigit():
-#
-#                 parsed_file[2] = ('0' * (3 - len(number))) + number
-#                 renamed_file = ".".join(parsed_file)
-#                 os.rename(file, renamed_file)
 
 def fluor_cleaner(pgm_list, splitter ='/', fluor_clean_toggle = 'no'):
     bad_fluor_files = [file for file in pgm_list if file.split(".")[-2] in ['Aold', 'Cold']]
@@ -45,7 +24,7 @@ def fluor_cleaner(pgm_list, splitter ='/', fluor_clean_toggle = 'no'):
             pgm_list.remove(file)
 
     return pgm_list
-
+#***********************************************************************************************#
 def nV_deleted(file_list, delete_toggle = 'no'):
     if file_list:
         print("\nNanoanalysis files detected: {}\n".format(file_list))
@@ -60,7 +39,6 @@ def nV_deleted(file_list, delete_toggle = 'no'):
             for file in delete_list:
                 os.remove(file)
                 print("Deleted {}\n".format(file))
-
 #***********************************************************************************************#
 def txt_combiner(txt_list, splitter):
     # if sys.platform == 'win32': splitter = ('\\')
@@ -157,7 +135,7 @@ for xfile in xml_list:
     folder_name = chip_name
     # number = 1
     all_files = sorted(glob.glob('{}.*'.format(chip_name)))
-    pgm_list, csv_list, png_list, txt_list, tiff_list = [],[],[],[],[]
+    pgm_list, csv_list, png_list, txt_list, tiff_list, fluor_files = [],[],[],[],[],[]
     for file in all_files:
         if file.endswith('.pgm'):
             pgm_list.append(file)
@@ -170,8 +148,10 @@ for xfile in xml_list:
         elif file.endswith('.tif'):
             tiff_list.append(file)
             print("TIFF images detected")
-
+            
     if pgm_list != []:
+        fluor_files = [file for file in pgm_list if file.split(".")[-2] in 'ABC']
+        print("Fluorescent images detected")
         pgm_list = fluor_cleaner(pgm_list, splitter)
         total_spots = max([int(val.split('.')[1]) for val in pgm_list])
         nV_deleted(csv_list)
@@ -183,62 +163,43 @@ for xfile in xml_list:
         if (len(tiff_list) != total_spots):
             print("Converting TIFFs")
             img_list = tiff_maker(pgm_list, archive = False)
-    else:
-        img_list = tiff_list
-
-    iris_data_list = img_list + txt_list
-    # print(iris_data_list)
-
-
-    if not iris_data_list == []:
-        if os.path.exists(folder_name):
-            os.chdir(folder_name)
-
-
-            try: new_str = txt_combiner(txt_list, splitter)
-            except UnboundLocalError: new_str = '002'
-
-            for txtfile in txt_list:
-                if len(txtfile.split('.')) < 4:
-                    os.remove('../' + txtfile)
-            os.chdir(iris_path)
-            mirror_file = str(glob.glob(folder_name+'.000.000.pgm')).strip("'[]'")
-            if mirror_file: #in iris_data_list:
-                iris_data_list.append(mirror_file)
-            #     os.remove(mirror_file)
-            print(iris_data_list)
-            for filename in iris_data_list:
-                filesplit = filename.split('.')
-                if filesplit[2].isdigit():
-                    filesplit[2] = new_str
-                    newname = '.'.join(filesplit)
-                    print(newname)
-                    dest = '{}{}{}'.format(folder_name, #splitter+'test'+
-                                           splitter, newname)
-                    os.rename(filename, dest)
         else:
-            os.makedirs(folder_name)
-            for filename in iris_data_list:
-                dest = '{}{}{}'.format(folder_name, splitter, filename)
-                os.rename(filename, dest)
+            img_list = tiff_list
 
+        iris_data_list = img_list + txt_list + fluor_files
 
+        if not iris_data_list == []:
 
+            if os.path.exists(folder_name):
+                os.chdir(folder_name)
 
+                try: new_str = txt_combiner(txt_list, splitter)
+                except UnboundLocalError: new_str = '002'
 
+                for txtfile in txt_list:
+                    if len(txtfile.split('.')) < 4:
+                        os.remove('../' + txtfile)
+                os.chdir(iris_path)
 
-    #     while os.path.exists(folder_name):
-    #         number += 1
-    #         folder_name = chip_name + '_{}'.format(number)
+                #     os.remove(mirror_file)
+                print(iris_data_list)
+                for filename in iris_data_list:
+                    filesplit = filename.split('.')
+                    if filesplit[2].isdigit():
+                        filesplit[2] = new_str
+                        newname = '.'.join(filesplit)
+                        print(newname)
+                        dest = '{}{}{}'.format(folder_name, #splitter+'test'+
+                                               splitter, newname)
+                        os.rename(filename, dest)
+            else:
+                os.makedirs(folder_name)
+                for filename in iris_data_list:
+                    os.rename(filename, '{}{}{}'.format(folder_name, splitter, filename))
 
-    #
-    # # if not iris_data_list == []:
-    #     for file in iris_data_list:
-    #         dest = '{}/{}'.format(folder_name, file)
-    #         os.rename(file, dest)
-    #         print("Moving files...")
-    #
-    #     if folder_name != chip_name:
-    #         os.chdir(folder_name)
-    #         all_moved_files = sorted(glob.glob('*.*'))
-    #         iris_renamer(filelist = all_moved_files, number = number)
+            mirror_file = str(glob.glob(folder_name+'.000.000.pgm')).strip("'[]'")
+            final_mirror_loc = '{}{}{}'.format(folder_name, splitter, mirror_file)
+            if not os.path.isfile(final_mirror_loc):
+                os.rename(mirror_file, final_mirror_loc)
+            else:
+                os.remove(mirror_file)

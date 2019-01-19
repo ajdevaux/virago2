@@ -125,31 +125,60 @@ def gen_img3D(im3D, cmap = "gray", step = 1):
 #*********************************************************************************************#
 def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
     """This locates the "backwards-L" shapes in the IRIS images"""
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         warnings.warn(FutureWarning)##Numpy FFT Warning. This is Scikit-Image's problem
-        marker_match = match_template(image, marker, pad_input = True)
+        if marker.ndim == 2:
+            h, w = marker.shape
+            locs = peak_local_max(match_template(image, marker, pad_input = True),
+                                  min_distance = 800,
+                                  threshold_rel = thresh,
+                                  exclude_border = False,
+                                  num_peaks = 4
+            )
 
-    locs = peak_local_max(marker_match,
-                          min_distance = 800,
-                          threshold_rel = thresh,
-                          exclude_border = False,
-                          num_peaks = 4
-    )
-    locs = [tuple(coords) for coords in locs]
+        elif marker.ndim == 3:
+            z, h, w = marker.shape
+            locs = [peak_local_max(match_template(image, m, pad_input = True),
+                                                  threshold_rel = thresh,
+                                                  exclude_border = False,
+                                                  num_peaks = 1
+                                    ).flatten() for m in marker
+            ]
+
+    locs = list(map(lambda x: tuple(x), locs))
     locs.sort(key = lambda coord: coord[1])
 
-    mask = None
     if gen_mask == True:
         mask = np.zeros(shape = image.shape, dtype = bool)
-        h, w = marker.shape
-        h += 5; w += 5
-        for coords in locs:
-            marker_w = (np.arange(coords[1] - w/2,coords[1] + w/2)).astype(int)
-            marker_h = (np.arange(coords[0] - h/2,coords[0] + h/2)).astype(int)
+        # h += 5; w += 5
+        found_markers = np.empty([len(locs),h,w], dtype = 'float64')
+        bad_locs,bad_index = [],[]
+        for i, coords in enumerate(locs):
+            loc_y, loc_x = coords
+            height, width = h/2, w/2
+
+            if loc_y < h:
+                height = loc_y
+            if loc_x < w:
+                width = loc_x
+
+            marker_w = np.arange(loc_x - width, loc_x + width + 1, dtype = int)
+            marker_h = np.arange(loc_y - height, loc_y + height + 1, dtype = int)
+
             mask[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]] = True
 
-        return locs, mask
+            try:
+                found_markers[i] = image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]]
+            except ValueError:
+                bad_locs.append(coords)
+                bad_index.append(i)
+
+        locs = [coords for coords in locs if coords not in bad_locs]
+        found_markers = np.delete(found_markers, bad_index, axis=0)
+
+        return locs, mask, found_markers
     else:
         return locs
 #*********************************************************************************************#
@@ -171,7 +200,7 @@ def clahe_3D(img_stack, cliplim = 0.003):
     """Performs the contrast limited adaptive histogram equalization on the stack of images"""
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
-    img3D_clahe = np.empty_like(img_stack).astype('float64')
+    img3D_clahe = np.empty_like(img_stack, dtype='float64')
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -253,9 +282,9 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
         nlocs_ct = len(new_locs)
 
         if plocs_ct != nlocs_ct:
-            max_shift = 50
+            max_shift = 100
         else:
-            max_shift = 75
+            max_shift = 150
 
         if (plocs_ct > 0) & (nlocs_ct > 0):# & (plocs_ct == nlocs_ct):
             shift_array = np.asarray([np.subtract(coords1, coords0)
@@ -271,7 +300,7 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
             print("Image shift: {}".format(mean_shift))
             overlay_toggle = True
         elif shift_array.size == 0:
-            mean_shift = [0, 0]
+            mean_shift =  [0, 0]
             print("No compatible markers, cannot compute shift")
             overlay_toggle = False
         else:

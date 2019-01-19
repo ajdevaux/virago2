@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import division
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +10,6 @@ import os
 import sys
 import warnings
 
-from __future__ import division
 from future.builtins import input
 from datetime import datetime
 from skimage import io as skio
@@ -16,7 +17,7 @@ from skimage.filters import sobel_h, sobel_v
 from skimage.feature import shape_index, canny
 from skimage.measure import label, regionprops
 from scipy import ndimage as ndi
-# from scipy.stats import chisquare
+from scipy.optimize import curve_fit
 
 from modules import vpipes, vimage, vquant, vgraph
 from modules.filographs import filohisto
@@ -27,8 +28,12 @@ pd.set_option('display.width', 1000)
 pd.options.display.max_rows=999
 pd.options.display.max_columns=15
 logo.print_logo()
-version = '2.10.6'
+version = '2.11.0'
 """
+Version 2.11.0 = Added a correlation function to better select pixels that are nanoparticles.
+                  This increases analysis time. Only works with large-stack data (>21 images)
+Version 2.10.8 = Modified thresholds for shape finding; narrowed the window of the maxmin projection
+Version 2.10.7 = Removed for loops when doing data extraction from regionprops.
 Version 2.10.6 = changed how focus is caluclated using the Tenengrad algorithm
 Version 2.10.5 = Increased CLAHE clip limit from .002 to .008 for Exoviewer images to improve quality
 Version 2.10.4 = Added TIFF compatibility
@@ -42,6 +47,9 @@ Version 2.6 = Using mask to remove old particles instead of relying on subtracti
 """
 print("VERSION {}\n".format(version))
 print(os.path.dirname(__file__))
+
+def psf_sine(x,a,b,c):
+    return a * np.sin(b * x + c)
 
 def find_focus_by_3methods(pic3D):
     """
@@ -98,7 +106,7 @@ def fourier_map(pic3D):
 show_particles = True ##show particle info on output images
 show_filos = True
 Ab_spot_mode = True ##change to False if chips have not been spotted with antibody microarray
-if Ab_spot_mode == False: print("This chip has no antibody spots\n")
+
 #*********************************************************************************************#
 IRISmarker_liq = skio.imread('images/IRISmarker_new.tif')
 IRISmarker_exo = skio.imread('images/IRISmarker_v4_topstack.tif')
@@ -133,8 +141,6 @@ elif pgm_list == []:
 
 else:
     print("Mixture of PGM and TIFF files\n")#. Please convert all PGM files before continuing")
-    # pgm_set = set([".".join(file.split(".")[:3]) for file in pgm_list])
-    # tiff_set = set([".".join(file.split(".")[:3]) for file in tiff_list])
     image_list = tiff_list + pgm_list
     convert_tiff = True
     # sys.exit()
@@ -145,8 +151,9 @@ xml_list = sorted(glob.glob('*/*.xml'))
 if not xml_list: xml_list = sorted(glob.glob('../*/*.xml'))
 
 chip_name = image_list[0].split(".")[0]
-image_set = set([".".join(file.split(".")[:3]) for file in image_list])
-
+if chip_name == 'baseCHIP404':
+    Ab_spot_mode = False
+image_set = set(".".join(file.split(".")[:3]) for file in image_list)
 
 txtcheck = [file.split(".") for file in txt_list]
 iris_txt = [".".join(file) for file in txtcheck if (len(file) >= 3) and (file[2].isalpha())]
@@ -157,16 +164,18 @@ if xml_file:
     meta_dict = chipFile[0]
     if meta_dict['chipversion'] == '4':
         print("Exoviewer images\n")
-        cliplim = 0.008
+        if Ab_spot_mode == True:
+            cliplim = 0.002
+        else:
+            cliplim = 0.004
         perc_range = (3,97)
         cam_micron_per_pix = 3.45 * 2
         mag = 44
         exo_toggle = True
-        cv_cutoff = 0.05
+        cv_cutoff = 0.1
+        r2_cutoff = 0.85
         IRISmarker = IRISmarker_exo
-        marker_h, marker_w =  IRISmarker.shape
-        hmarker_h = marker_h // 2
-        hmarker_w = marker_w // 2
+        canny_sig = 2.5
         NA = 0.75
         timeseries_mode = 'scan'
         filohist_range = (0,50)
@@ -180,13 +189,18 @@ if xml_file:
         exo_toggle = False
         cv_cutoff = 0.01
         IRISmarker = IRISmarker_liq
+        canny_sig = 1.5
         NA = 0.75
         filohist_range = (0,10)
     else:
         raise ValueError("Unknown IRIS chip version\n")
 
+    marker_h, marker_w =  IRISmarker.shape
+    hmarker_h = marker_h // 2
+    hmarker_w = marker_w // 2
     mAb_dict, mAb_dict_rev = vpipes.chipFile_reader(chipFile, remove_jargon = True)
     spot_counter = len([key for key in mAb_dict])##Important
+
 else:
     print("\nNon-standard chip\n")
     raise ValueError('Cannot find IRIS chip file')
@@ -197,13 +211,15 @@ else:
     IRISmarker = IRISmarker_exo
     cliplim = 0.004
     timeseries_mode = 'scan'
-    mAb_dict = {}
     spot_counter = max([int(pgmfile.split(".")[1]) for imgfile in image_list])##Important
-    for i in range(1,spot_counter+1):
-        mAb_dict[i] = i
+
+    mAb_dict = {i:i for i in range(1,spot_counter+1)}
     mAb_dict_rev = {1: list(range(1,spot_counter+1))}
 
-print("There are {} antibody spots\n".format(spot_counter))
+if Ab_spot_mode == False:
+    print("This chip has no antibody spots. There are {} locations\n".format(spot_counter))
+else:
+    print("There are {} antibody spots\n".format(spot_counter))
 
 pix_per_um = mag / cam_micron_per_pix
 conv_factor = (cam_micron_per_pix / mag)**2
@@ -239,7 +255,6 @@ else:
 #*********************************************************************************************#
 os.chdir(iris_path)
 
-spot_df = pd.DataFrame([])
 spot_list = [int(file[1]) for file in txtcheck if (len(file) > 2) and (file[2].isalpha())]
 
 pass_counter = int(max([imgfile.split(".")[2] for imgfile in image_list]))##Important
@@ -251,6 +266,7 @@ missing_spots = tuple(scanned_spots.difference(spot_list))
 for val in missing_spots:
     iris_txt.insert(val-1,val)
 
+spot_df = pd.DataFrame()
 for ix, txtfile in enumerate(iris_txt):
     spot_data_solo = pd.DataFrame({'spot_number'   : [ix+1] * pass_counter,
                                    'scan_number'   : range(1,pass_counter + 1),
@@ -329,14 +345,14 @@ if image_toggle.lower() not in ('no', 'n'):
             fluor_files = [file for file in stack_list if file.split(".")[-2] in 'ABC']
             if fluor_files:
                 stack_list = [file for file in stack_list if file not in fluor_files]
-                print("Fluorescent channel(s) detected: {}\n".format(fluor_files))
+                print("\nFluorescent channel(s) detected: {}\n".format(fluor_files))
 
-            img_name = top_img.split(".")
-            spot_num = int(img_name[1])
+            spot_num, pass_num = map(int,top_img.split(".")[1:3])
+
             spot_type = mAb_dict[spot_num][0].split("(")[-1].strip(")")
-            pass_num = int(img_name[2])
+
             spot_pass_str = '{}.{}'.format(vpipes.three_digs(spot_num), vpipes.three_digs(pass_num))
-            img_name = '.'.join(img_name[:3])
+            img_name = '.'.join([chip_name, spot_pass_str])
 
             if tiff_toggle == True:
                 pic3D = skio.imread(top_img)
@@ -365,36 +381,61 @@ if image_toggle.lower() not in ('no', 'n'):
             # vimage.gen_img(pic3D_rescale[9])
             print("Contrast adjusted\n")
 
-            marker_locs = vimage.marker_finder(image = pic3D_norm[0],
-                                               marker = IRISmarker,
-                                               thresh = 0.65,
-                                               gen_mask = False,
-            )
-            marker_dict[spot_pass_str] = marker_locs
-            foci_list = []
-            for loc in marker_locs:
-                # print(loc)
-                if all(i > 70 for i in loc):
-                    marker3D_img = pic3D_norm[:,
-                                              loc[0]-hmarker_h : loc[0]+hmarker_h,
-                                              loc[1]-hmarker_w : loc[1]+hmarker_w
-                    ]
+            if pass_num == 1:
+                marker = IRISmarker
+                # found_markers = []
+            else:
+                marker = found_markers
 
-                    teng_vals = [np.mean(sobel_h(img) **2 + sobel_v(img)**2)
-                                 for img in marker3D_img
-                    ]
-                    pos_vals = teng_vals[:teng_vals.index(min(teng_vals))]
-                    if not pos_vals == []:
-                        foci_list.append(teng_vals.index(max(pos_vals)))
+            marker_locs, marker_mask, found_markers = vimage.marker_finder(image = pic3D_norm[0],
+                                               marker = marker,
+                                               thresh = 0.65,
+                                               gen_mask = True,
+            )
+            # for marker in found_markers:
+            #     vimage.gen_img(marker)
+            marker_dict[spot_pass_str] = marker_locs
+
+            pos_plane_list = []
+            if (exo_toggle == True):
+
+                for loc in marker_locs:
+
+                    if (loc[0] < hmarker_h) or (loc[1] < hmarker_w):
+                        pass
+
+                    else:
+                        marker3D_img = pic3D_norm[:,
+                                                  loc[0]-hmarker_h : loc[0]+hmarker_h,
+                                                  loc[1]-hmarker_w : loc[1]+hmarker_w
+                        ]
+
+                        teng_vals = [np.mean(sobel_h(img)**2 + sobel_v(img)**2) for img in marker3D_img]
+                        min_plane = teng_vals.index(min(teng_vals))
+                        pos_vals = teng_vals[:min_plane]
+                        if not pos_vals == []:
+                            pos_plane_list.append(teng_vals.index(max(pos_vals)))
+
+                        neg_vals = teng_vals[min_plane:]
+                        neg_vals_diff = list(np.diff(neg_vals))
+                        neg_plane_list = [neg_vals_diff.index(val) for val in neg_vals_diff if val < 0]
+
+                        if not neg_plane_list == []:
+                            neg_plane = min(neg_plane_list) + min_plane
+                        else:
+                            neg_plane = neg_vals_diff.index(min(neg_vals_diff)) + min_plane
+
+
                         # plt.plot(range(1,zslice_count+1), teng_vals)
                     # teng_max = min(teng_vals.index(max(teng_vals))
-            # plt.show()
-            # plt.clf()
-            if zslice_count > 1:
-                # focal_plane = zslice_count // 5
-                focal_plane = max(foci_list)
 
-            else: focal_plane = 0
+            if not pos_plane_list == []:
+                pos_plane = max(pos_plane_list)
+            else:
+                pos_plane = 6
+                neg_plane = -1
+
+
 
             # def tenengrad(pic3D):
             #   z, nrows, ncols = pic3D.shape
@@ -426,11 +467,15 @@ if image_toggle.lower() not in ('no', 'n'):
 
             # find_focus(pic3D_rescale)
 
-            pic_rescale_focus = pic3D_rescale[focal_plane]
-            print("Using image {} from stack\n".format(vpipes.three_digs(focal_plane + 1)))
+            pic_rescale_pos = pic3D_rescale[pos_plane]
+            print("Using image {} from stack\n".format(vpipes.three_digs(pos_plane + 1)))
 
             pic_maxmin = np.max(pic3D_rescale, axis = 0) - np.min(pic3D_rescale, axis = 0)
-            pic_canny = canny(pic_maxmin, sigma = 3)
+
+            # pic3D_rescale_posneg = pic3D_rescale[pos_plane:neg_plane]
+            # pic_stdproj = np.std(pic3D_rescale_posneg, axis=0)
+
+
 
             # vimage.image_details(pic3D_norm[9],pic3D_clahe[9],pic3D_rescale[9],pic_canny)
 
@@ -447,7 +492,6 @@ if image_toggle.lower() not in ('no', 'n'):
             )
             shift_dict[spot_pass_str] = mean_shift
 
-            # overlay_dict[spot_pass_str] = pic_maxmin
 
             if (overlay_toggle == True):# & (finish_anal not in ('yes', 'y')):
                 print("Valid Shift\n")
@@ -473,8 +517,10 @@ if image_toggle.lower() not in ('no', 'n'):
                 spot_coords = (shift_x, shift_y, spot_coords[2])
                 circle_dict[spot_num] = spot_coords
             else:
+                pic_canny = canny(pic_maxmin, sigma = canny_sig)
+                # vimage.gen_img(pic_canny)
                 spot_coords = vimage.spot_finder(pic_canny,
-                                                 rad_range=(300,601),
+                                                 rad_range=(325,601),
                                                  Ab_spot=Ab_spot_mode
                 )
 
@@ -485,13 +531,20 @@ if image_toggle.lower() not in ('no', 'n'):
             height = row - spot_coords[1]
             rad = spot_coords[2] - 25
             disk_mask = (width**2 + height**2 > rad**2)
-            full_mask = disk_mask# + marker_mask
+            full_mask = disk_mask + marker_mask
 
             pic_maxmin_masked = np.ma.array(pic_maxmin,
+                                            mask = full_mask).filled(fill_value = np.nan)
+            pic_rescale_pos_ma = np.ma.array(pic_rescale_pos,
                                             mask = full_mask).filled(fill_value = np.nan)
 #*********************************************************************************************#
             if pass_num > first_scan:
                 particle_mask = vimage.particle_mask_shift(particle_mask, mean_shift)
+
+
+            pic_to_show = pic_rescale_pos
+
+
 
 #*********************************************************************************************#
             with warnings.catch_warnings():
@@ -499,77 +552,71 @@ if image_toggle.lower() not in ('no', 'n'):
                 warnings.simplefilter("ignore")
                 warnings.warn(RuntimeWarning)
 
-                shapedex = shape_index(pic_rescale_focus)
+                shapedex = shape_index(pic_rescale_pos)
                 shapedex = np.ma.array(shapedex,mask = full_mask).filled(fill_value = np.nan)
 
                 if pass_num > first_scan:
 
-                    shapedex= np.ma.array(shapedex,mask = particle_mask).filled(fill_value = -1)
-
-
-            shapedex_gauss = ndi.gaussian_filter(shapedex, sigma=1)
+                    shapedex = np.ma.array(shapedex,mask = particle_mask).filled(fill_value = -1)
 
             pix_area = np.count_nonzero(np.invert(np.isnan(shapedex)))
 
             area_sqmm = round((pix_area * conv_factor) * 1e-6, 6)
 
+            vdata_dict = {'img_name'        : img_name,
+                          'spot_type'       : spot_type,
+                          'area_sqmm'       : area_sqmm,
+                          'mean_shift'      : mean_shift,
+                          'overlay_mode'    : overlay_mode,
+                          'total_particles' : 0,
+                          'pos_plane'       : pos_plane,
+                          'exo_toggle'      : exo_toggle,
+                          'spot_coords'     : spot_coords,
+                          'marker_locs'     : marker_locs,
+                          'validity'        : validity,
+                          'version'         : version
+            }
             maxmin_median = np.nanmedian(pic_maxmin_masked)
-            print(maxmin_median)
 
-            if Ab_spot_mode == False: maxmin_median = maxmin_median / 1.5
+            print("Median intensity of spot = {}\n".format(round(maxmin_median,4)))
+
+            if Ab_spot_mode == False:
+                maxmin_median = 0.3
+                print("Adjusted median intensity of spot = {}\n".format(round(maxmin_median,4)))
 
             ridge = 0.5
             sphere = 1
-
-            ridge_thresh = maxmin_median*3.5
+            # if Ab_spot_mode == True:
+            ridge_thresh = maxmin_median*4
             sphere_thresh = maxmin_median*2
             ridge_thresh_s = maxmin_median*3
 
+
+
             ridge_list = vquant.classify_shape(shapedex, pic_maxmin, ridge,
-                                               delta=0.2, intensity=ridge_thresh
+                                               delta=0.25, intensity=ridge_thresh
             )
             sphere_list = vquant.classify_shape(shapedex, pic_maxmin, sphere,
                                                 delta=0.2, intensity=sphere_thresh
             )
-            ridge_list_s = vquant.classify_shape(shapedex_gauss, pic_maxmin, ridge,
-                                                 delta=0.25, intensity=ridge_thresh_s
+            ridge_list_s = vquant.classify_shape(ndi.gaussian_filter(shapedex, sigma=1),
+                                                 pic_maxmin, ridge,
+                                                 delta=0.3, intensity=ridge_thresh_s
             )
 
-            ridge_and_sphere_list = ridge_list + sphere_list
-            ridge_list_s = [coord for coord in ridge_list_s if coord not in ridge_and_sphere_list]
+
+            pix_list = ridge_list + sphere_list
+            ridge_list_s = [coord for coord in ridge_list_s if coord not in pix_list]
+            pix_list = pix_list + ridge_list_s
+
+            # raise NameError
+
 
             pic_binary = np.zeros_like(pic_maxmin, dtype=int)
-            for coord in ridge_and_sphere_list + ridge_list_s:
+            for coord in pix_list:
                 if pic_binary[coord] == 0: pic_binary[coord] = 1
 
             pic_binary = ndi.morphology.binary_fill_holes(pic_binary)
-            # pic_binary = ndi.morphology.binary_dilation(pic_binary).astype(int)
-
-
-
-#*********************************************************************************************#
-            pic_binary_label = label(pic_binary, connectivity = 2)
-            binary_props = regionprops(pic_binary_label, pic3D[focal_plane], cache = True)
-
-            label_list, centroid_list, area_list, coords_list=[],[],[],[]
-            bbox_list, perim_list,elong_list = [],[],[]
-            shape_df = pd.DataFrame()
-            for region in binary_props:
-                if (region.area > 3) & (region.area <= 150):
-                    with warnings.catch_warnings():
-                        ##UserWarning ignored
-                        warnings.simplefilter("ignore")
-                        warnings.warn(UserWarning)
-                        label_list.append(region.label)
-                        coords_list.append([tuple(coords) for coords in region.coords])
-                        centroid_list.append(region.centroid)
-                        bbox_list.append((region.bbox[0:2], region.bbox[2:]))
-                        area_list.append(region.area)
-                        perim_list.append(region.perimeter)
-                        try: elong_list.append(region.major_axis_length / region.minor_axis_length)
-                        except ZeroDivisionError: elong_list.append(np.inf)
-
-
 
             if pass_num == first_scan:
                 particle_mask = ndi.morphology.binary_dilation(pic_binary, iterations=3)
@@ -579,96 +626,188 @@ if image_toggle.lower() not in ('no', 'n'):
                                        ndi.morphology.binary_dilation(pic_binary, iterations=2)
                 )
 
+#*********************************************************************************************#
+            ##EXTRACT DATA FROM THE BINARY IMAGE
+            binary_props = regionprops(label(pic_binary, connectivity = 2),
+                                       pic3D[pos_plane], cache = True
+            )
+
+            with warnings.catch_warnings():
+                ##UserWarning ignored
+                warnings.simplefilter("ignore")
+                warnings.warn(UserWarning)
+                shape_df = pd.DataFrame([[region.label,
+                                          [tuple(coords) for coords in region.coords],
+                                          region.centroid,
+                                          (region.bbox[0:2], region.bbox[2:]),
+                                          region.area,
+                                          region.perimeter,
+                                          region.major_axis_length,
+                                          region.minor_axis_length]
+                                          for region in binary_props
+                                          if (region.area > 3) & (region.area <= 300)],
+                                          columns=['label_bin','coords','centroid','bbox',
+                                                   'area','perim','maj_ax','min_ax']
+                )
+
+            if not shape_df.empty:
+                shape_df['pass_number'] = [pass_num]*len(shape_df.index)
+                shape_df['perim_area_ratio']= list(map(lambda A,P: (P**2) / (4*np.pi * A),
+                                                        shape_df.area, shape_df.perim)
+                )
+                shape_df['elongation'] = shape_df.maj_ax / shape_df.min_ax
+                shape_df['bbox_verts'] = [np.array([(bbox[0][0] - 2, bbox[0][1] - 2),
+                                                    (bbox[0][0] - 2, bbox[1][1] + 2),
+                                                    (bbox[1][0] + 2, bbox[1][1] + 2),
+                                                    (bbox[1][0] + 2, bbox[0][1] - 2)])
+                                           for bbox in shape_df.bbox
+                ]
+                shape_df.drop(columns=['bbox', 'perim', 'maj_ax', 'min_ax'], inplace=True)
+            else:
+                print("----No valid particle shapes----\n")
+                print(shape_df)
+                with open('{}/{}.vdata.txt'.format(vcount_dir,img_name),'w') as f:
+                    for k,v in vdata_dict.items():
+                        f.write('{}: {}\n'.format(k,v))
+
+                vgraph.gen_particle_image(pic_to_show,shape_df,spot_coords,
+                                          pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
+                                          show_particles=False,
+                                          scalebar=15, markers=marker_locs,
+                                          exo_toggle=exo_toggle
+                )
+                plt.savefig('{}/{}.{}.png'.format(img_dir, img_name, spot_type), dpi = 96)
+                plt.clf(); plt.close('all')
+                print("#******************PNG generated for {}************************#".format(img_name))
+                continue
 
 #*********************************************************************************************#
-            with warnings.catch_warnings():
-                ##RuntimeWarning ignored: invalid values are expected
-                warnings.simplefilter("ignore")
-                warnings.warn(RuntimeWarning)
-                perim_area_ratio = vquant.shape_factor_reciprocal(area_list, perim_list)
 
-            shape_df['pass_number'] = [pass_num]*len(label_list)
-            shape_df['perim_area_ratio'] = perim_area_ratio
 
-            shape_df['label_bin'] = label_list
-            shape_df['coords'] = coords_list
-            shape_df['centroid'] = centroid_list
-            shape_df['area'] = area_list
-            shape_df['elongation'] = elong_list
+            def measure_z_stack(z_stack, std_z_stack, a0=0.1, b0=0.1, c0=1, show = False):
 
-            median_bg_list, bbox_vert_list = [],[]
-            for bbox in bbox_list:
+                x_data = np.arange(0,len(z_stack))
 
-                bbox_verts = np.array([(bbox[0][0] - 2, bbox[0][1] - 2),
-                                       (bbox[0][0] - 2, bbox[1][1] + 2),
-                                       (bbox[1][0] + 2, bbox[1][1] + 2),
-                                       (bbox[1][0] + 2, bbox[0][1] - 2)
-                ])
-                bbox_vert_list.append(bbox_verts)
+                maxa, mina = max(z_stack), min(z_stack)
+                max_z = z_stack.index(maxa)
+                intensity = round(maxa - mina,5)
 
-            shape_df['bbox_verts'] = bbox_vert_list
+                basedex = (max_z + z_stack.index(mina)) // 2
+                y_data = list(map(lambda x: x - z_stack[basedex], z_stack))
 
-            shape_df.reset_index(drop = True, inplace = True)
 
-            filo_pts_tot, round_pts_tot, max_z  = [],[],[]
-            greatest_max, all_int_profiles_z, chisq_list = [],[],[]
+                try:
+                    fit_params, params_cov = curve_fit(psf_sine, x_data, y_data,
+                                                        sigma=std_z_stack,
+                                                        p0=[a0, b0, c0],
+                                                            # bounds=([0.05,0.3,1],[0.4,0.5,1.2]),
+                                                        method='lm')
+                except RuntimeError:
+                    return 0, intensity, max_z
+
+
+                y_fit = psf_sine(x_data,fit_params[0],fit_params[1],fit_params[2])
+
+                ss_res = np.sum((y_data - y_fit)**2)
+                ss_tot = np.sum((y_data - np.mean(y_data))**2)
+                r2 = round(1 - (ss_res / ss_tot),5)
+
+                if show == True:
+                    plt.plot(y_fit)
+                    plt.errorbar(x=x_data,y=y_data,yerr=std_z_stack, linestyle='--')
+                    plt.text(x=0,y=0, s='R^2 = {0}; a,b,c = {1}'.format(r2,np.round(fit_params,4)))
+
+                    plt.xlim(-5,25)
+                    plt.show()
+
+                return r2, intensity, max_z
+
+
+
+
+
+            filo_pts_tot, round_pts_tot  = [],[]
+            r2_list, greatest_max_list, max_z_list, intensity_list, z_stacks = [],[],[],[],[]
 
             for coord_array in shape_df.coords:
+                coord_set = set(coord_array)
+                filo_pts = len(coord_set.intersection(ridge_list))
 
-                filo_pts = len(set(coord_array).intersection(ridge_list))
-                filo_pts_s = len(set(coord_array).intersection(ridge_list_s))
-                filo_pts = filo_pts + (filo_pts_s * 0.15)
+                filo_pts = filo_pts + (len(coord_set.intersection(ridge_list_s)) * 0.15)
 
-                round_pts = len(set(coord_array).intersection(sphere_list))
+                round_pts = len(coord_set.intersection(sphere_list))
 
                 filo_pts_tot.append(filo_pts)
                 round_pts_tot.append(round_pts)
 
-                pix_max_list, z_list = vquant.measure_max_intensity_stack(pic3D, coord_array)
+                # pix_max_list, z_list = vquant.measure_max_intensity_stack(pic3D, coord_array)
 
-                greatest_max.append(np.max(pix_max_list))
-                max_z.append(z_list[pix_max_list.index(max(pix_max_list))])
+                # greatest_max.append(np.max(pix_max_list))
+                # max_z.append(z_list[pix_max_list.index(max(pix_max_list))])
+                all_z_stacks = np.array([list(pic3D_norm[:,coords[0],coords[1]])
+                                                for coords in coord_array])
+                greatest_max = np.max(all_z_stacks)
+                max_z_stack = all_z_stacks[np.where(all_z_stacks == greatest_max)[0][0]].tolist()
+                mean_z_stack = list(np.round(np.mean(all_z_stacks, axis=0),4))
+                std_z_stack = list(np.round(np.std(all_z_stacks, axis=0),4))
 
-                # intensity_profile_z = np.array([])
-                # for coords in coord_array:
-                #         # pixel_stack = pic3D[:, coords[0], coords[1]]
-                #         intensity_profile_z = np.append([intensity_profile_z], [pic3D[:, coords[0], coords[1]]])
-                intensity_profile_z = np.array([list(pic3D[:, coords[0], coords[1]])
-                                                for coords in coord_array]
-                )
+                r2, intensity, max_z = measure_z_stack(mean_z_stack,std_z_stack, show=True)
 
+                r2_list.append(r2)
+                intensity_list.append(intensity)
+                max_z_list.append(max_z)
+                greatest_max_list.append(greatest_max)
+                z_stacks.append(mean_z_stack)
 
-                # intensity_profile_z = intensity_profile_z.reshape(len(coord_array), zslice_count)
-                mean_int_profile_z = list(np.round(np.mean(intensity_profile_z, axis=0),3))
-                all_int_profiles_z.append(mean_int_profile_z)
-
-
-                stack_prime = np.diff(mean_int_profile_z)*-1
-
-            # def fprime(x):
-            #     y = np.cbrt(x-7.5)/120
-            #     return np.diff(y)
-
-            # chisq, pval = chisquare(stack_prime, fprime(x))
-
-            # fig  = plt.figure()
-            # x = np.arange(1,zslice_count+1,1)
-            # xprime = x[:-1]
-            # for stack in all_int_profiles_z:
-            #     plt.plot(x, stack, lw=0.5)
-                # plt.plot(xprime, fprime(x), linewidth=5)
-                # plt.text(1,0,(chisq, pval))
-                # chisq_list.append(chisq)
-            # plt.show()
-
-            # plt.savefig('{}/{}.particle_intensity_z.png'.format(vcount_dir, img_name))
-
-            shape_df['greatest_max'] = greatest_max
-            shape_df['max_z'] = max_z
-            shape_df['mean_intensity_profile_z'] = all_int_profiles_z
-            # shape_df['chisq'] = chisq_list
+            shape_df['intensity'] = intensity_list
+            shape_df['max_z'] = max_z_list
+            shape_df['greatest_max'] = greatest_max_list
+            shape_df['z_stack'] = z_stacks
+            shape_df['r2_corr'] = r2_list
             shape_df['filo_points'] = filo_pts_tot
             shape_df['round_points'] = round_pts_tot
+            # raise Error
+            # def measure_psf_corr(z_stacks, a0=0.1, b0=0.15, c0=1.2, show = False):
+            #     # z_stacks = [list(pic3D[:, val[0], val[1]]) for val in pix_list]
+            #     x_data = np.arange(0,len(z_stacks[0]))
+            #     r2_list, intensity_list = [],[]
+            #     for i,arr in enumerate(z_stacks):
+            #         maxa, mina = max(arr), min(arr)
+            #         intensity_list.append(round(maxa - mina,5))
+            #         basedex = (arr.index(maxa) + arr.index(mina)) // 2
+            #         y_data = list(map(lambda x: x - arr[basedex], arr))
+            #
+            #         try: fit_params, params_cov = curve_fit(psf_sine, x_data, y_data,
+            #                                                 p0=[a0, b0, c0],
+            #                                                 # bounds=([0.05,0.3,1],[0.4,0.5,1.2]),
+            #                                                 method='lm')
+            #         except RuntimeError:
+            #             r2_list.append(0)
+            #             continue
+            #
+            #         y_fit = psf_sine(x_data,fit_params[0],fit_params[1],fit_params[2])
+            #
+            #         ss_res = np.sum((y_data - y_fit)**2)
+            #         ss_tot = np.sum((y_data - np.mean(y_data))**2)
+            #         r_sq = round(1 - (ss_res / ss_tot),5)
+            #         r2_list.append(r_sq)
+            #
+            #         if show == True:
+            #             plt.plot(y_fit)
+            #             plt.scatter(x=x_data,y=y_data)
+            #             plt.text(x=0,y=0, s='R^2 = {}'.format(r_sq))
+            #             plt.xlim(-5,25)
+            #             plt.show()
+            #
+            #     return r2_list #pd.DataFrame({'coords':pix_list,'r2':r2_list,'intensity':intensity_list})
+            #
+            #
+            # shape_df['r2_corr'] = measure_psf_corr(z_stacks, show = False)
+            print("Done measuring corr\n")
+
+
+
+
 
             median_bg_list, cv_bg_list = [],[]
 
@@ -685,10 +824,11 @@ if image_toggle.lower() not in ('no', 'n'):
                 all_edges = np.hstack([top_edge, bottom_edge, rt_edge, left_edge])
 
                 median_bg = np.median(all_edges)
-                median_bg_list.append(median_bg)
+                cv_bg = np.std(all_edges) / np.mean(all_edges)
 
-                cv_bg = np.std(all_edges)/np.mean(all_edges)
+                median_bg_list.append(median_bg)
                 cv_bg_list.append(cv_bg)
+
 
             shape_df['median_bg'] = median_bg_list
             shape_df['cv_bg'] = cv_bg_list
@@ -708,42 +848,35 @@ if image_toggle.lower() not in ('no', 'n'):
 #---------------------------------------------------------------------------------------------#
             filo_df = shape_df[(shape_df.filo_score >= 0.25) & (shape_df.area > 10)].copy()
 
-            filo_lengths, vertex_list = [],[]
-            for ix in filo_df.index:
-                coords = filo_df.coords[ix]
+
+            filolen_df = pd.DataFrame([vquant.measure_filo_length(coords,pix_per_um) for coords in filo_df.coords],
+                                       columns=['filo_lengths','vertices'], index=filo_df.index)
 
 
-                filo_len, iso_vertices = vquant.measure_filo_length(coords, pix_per_um)
-                filo_lengths.append(filo_len)
-                vertex_list.append(iso_vertices)
-
-            filo_df['filo_lengths'] = filo_lengths
-            filo_df['vertices'] = vertex_list
-
-            shape_df = pd.concat([shape_df, filo_df[['filo_lengths','vertices']]],axis=1)
+            shape_df = pd.concat([shape_df, filolen_df],axis=1)
 #---------------------------------------------------------------------------------------------#
             ### Fluorescent File Processer WORK IN PRORGRESS
             #min_sig = 0.9; max_sig = 2; thresh = .12
 #---------------------------------------------------------------------------------------------#
-            # if fluor_files:
-            #     # channel_list = ['A','B','C']
-            #     for fluor_filename in fluor_files:
-            #         fluor_img = skio.imread(fluor_filename)
-            #         if mirror.size == fluor_img.size:
-            #             fluor_img = fluor_img / mirror
-            #
-            #         fluor_rescale = vgraph.fluor_overlayer(fluor_img, pic_binary,
-            #                                                fluor_filename, savedir=fluor_dir
-            #         )
-            #
-            # if (show_filos == True):
-            #     vgraph.filo_image_gen(shape_df, pic_rescale_focus, shapedex, pic_binary,
-            #                          ridge_list, sphere_list, ridge_list_s,
-            #                          cv_cutoff=cv_cutoff, show=True
-            #     )
+            if fluor_files:
+                # channel_list = ['A','B','C']
+                for fluor_filename in fluor_files:
+                    fluor_img = skio.imread(fluor_filename)
+                    if mirror.size == fluor_img.size:
+                        fluor_img = fluor_img / mirror
 
+                    fluor_rescale = vgraph.fluor_overlayer(fluor_img, pic_maxmin,
+                                                           fluor_filename, savedir=fluor_dir
+                    )
+
+            if (show_filos == True):
+                vgraph.filo_image_gen(shape_df, pic_rescale_pos, shapedex, pic_binary,
+                                      ridge_list, sphere_list, ridge_list_s,
+                                      cv_cutoff=cv_cutoff, r2_cutoff = r2_cutoff, show=True
+                )
+            # raise NameError
 #*********************************************************************************************#
-            valid_shape_df = shape_df[shape_df['cv_bg'] < cv_cutoff]
+            valid_shape_df = shape_df[(shape_df['cv_bg'] < cv_cutoff) & (shape_df['r2_corr'] >= 0.9)]
 
 
 #---------------------------------------------------------------------------------------------#
@@ -766,20 +899,7 @@ if image_toggle.lower() not in ('no', 'n'):
                 # plt.savefig('{}/{}.filohistogram.png'.format(filo_dir, img_name))
                 # print("Filament histogram generated")
 
-
-            vdata_dict = {'image_name'     : img_name,
-                         'spot_type'       : spot_type,
-                         'area_sqmm'       : area_sqmm,
-                         'image_shift_RC'  : mean_shift,
-                         'overlay_mode'    : overlay_mode,
-                         'total_particles' : total_particles,
-                         'focal_plane'     : focal_plane,
-                         'exo_toggle'      : exo_toggle,
-                         'spot_coords_xyr' : spot_coords,
-                         'marker_coords_RC': marker_locs,
-                         'valid'           : validity,
-                         'VIRAGO_version'  : version
-            }
+            vdata_dict.update({'total_particles': total_particles})
 
             with open('{}/{}.vdata.txt'.format(vcount_dir,img_name),'w') as f:
                 for k,v in vdata_dict.items():
@@ -788,10 +908,10 @@ if image_toggle.lower() not in ('no', 'n'):
 
 #---------------------------------------------------------------------------------------------#
         ####Processed Image Renderer
-            pic_to_show = pic_rescale_focus
-
             vgraph.gen_particle_image(pic_to_show,total_shape_df,spot_coords,
-                                      pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
+                                      pix_per_um=pix_per_um,
+                                      cv_cutoff=cv_cutoff,
+                                      r2_cutoff=r2_cutoff,
                                       show_particles=show_particles,
                                       scalebar=15, markers=marker_locs,
                                       exo_toggle=exo_toggle
@@ -800,61 +920,15 @@ if image_toggle.lower() not in ('no', 'n'):
             # plt.show()
             plt.savefig('{}/{}.{}.png'.format(img_dir, img_name, spot_type), dpi = 96)
             plt.clf(); plt.close('all')
-            print("#*************************************************************************#")
-
-            def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, img_name=''):
-
-                shape_df = shape_df[shape_df.pass_number == pass_num]
-
-                int_df = shape_df.mean_intensity_profile_z.apply(pd.Series)
-                norm_int_df = int_df.sub(int_df[0], axis=0)
-
-                intensity_df= pd.DataFrame({'intensity': int_df.stack(),
-                                            'norm_intensity': norm_int_df.stack()
-
-                })
-                intensity_df['max_z'] = [y for x in [[z]*zslice_count
-                                           for z in shape_df.max_z]
-                                           for y in x
-                ]
-                intensity_df['pc'] = [y for x in [[pc]*zslice_count
-                                        for pc in shape_df.perc_contrast]
-                                        for y in x
-                ]
-
-
-                intensity_df.reset_index(inplace=True)
-
-                intensity_df.rename(index=str, columns={'level_0':'label',
-                                                        'level_1':'z'}, inplace=True)
-                intensity_df['z'] = intensity_df['z'] +1
-
-                intensity_df=intensity_df[(intensity_df.pc >= 5) & (intensity_df.pc <= 80)]
-                intensity_df['pc_bin'] = round(intensity_df.pc*0.02,1)*50
-
-                intensity_df.sort_values(by=['pc'], ascending=False, inplace=True)
-                sns.set_style('darkgrid')
-                sns.lineplot(x='z',
-                             y='norm_intensity',
-                             hue='pc_bin',
-                             markers=True, palette="Blues_r", lw=1,
-                             ci='sd',
-                             data=intensity_df
+            print("#******************PNG generated for {}************************#".format(img_name))
+            if not shape_df.empty:
+                vgraph.intensity_profile_graph(shape_df, pass_num, zslice_count,
+                                               vcount_dir, exo_toggle, img_name
                 )
-                plt.title(img_name)
-                plt.legend(range(5,85,5),loc='lower left', ncol=2)
-                plt.ylim(min(intensity_df.norm_intensity)+0.1,max(intensity_df.norm_intensity))
-
-                plt.savefig('{}/{}.png'.format(dir, img_name))
-                plt.clf()
-
-            intensity_profile_graph(shape_df, pass_num, zslice_count, vcount_dir, img_name)
 
 #---------------------------------------------------------------------------------------------#
-
-        total_shape_df.to_csv('{}/{}.v2combined.csv'.format(vcount_dir, spot_ID))
+        total_shape_df.to_csv('{}/{}.particle_data.csv'.format(vcount_dir, spot_ID))
         analysis_time = str(datetime.now() - startTime)
-
 
         spot_to_scan += 1
         print("Time to scan images: {}".format(analysis_time))
@@ -882,35 +956,36 @@ else:
     print("\nData from version {}\n".format(version))
 
 os.chdir(vcount_dir)
-v2combo_list = sorted(glob.glob(chip_name +'*.v2combined.csv'))
+particle_data_list = sorted(glob.glob(chip_name +'*.particle_data.csv'))
 vdata_list = sorted(glob.glob(chip_name +'*.vdata.txt'))
 
 if len(vdata_list) >= (len(iris_txt) * pass_counter):
-    cont_window_str = str(input("\nEnter the minimum and maximum percent intensity values,"
+    cont_str = str(input("\nEnter the minimum and maximum percent intensity values,"
                                 + " separated by a dash.\n"))
-    while "-" not in cont_window_str:
-        cont_window_str = str(input("\nPlease enter two values separated by a dash.\n"))
+    while "-" not in cont_str:
+        cont_str = str(input("\nPlease enter two values separated by a dash.\n"))
     else:
-        cont_window = cont_window_str.split("-")
-    cont_str = '{0}-{1}'.format(*cont_window)
+        min_cont, max_cont = map(float, cont_str.split("-"))
 
-    vdata_dict = vquant.vdata_reader(vdata_list, ['area_sqmm','valid', 'exo_toggle'])
-    # spot_df['filo_counts'] = vdata_dict['filo_counts']
+    cont_window = [min_cont, max_cont]
+
+    vdata_dict ={}
+    for vfile in vdata_list:
+        vdata_dict = vquant.vdata_reader(vfile, vdata_dict, prop_list=['area_sqmm'])
+
     spot_df['area'] = vdata_dict['area_sqmm']
-    spot_df['valid'] = vdata_dict['valid']
+    spot_df['validity'] = vdata_dict['validity']
 
 
     particle_counts, filo_counts,irreg_counts = [],[],[]
     histogram_dict = {}
 
-    min_cont = float(cont_window[0])
-    max_cont = float(cont_window[1])
 
 
     new_particle_count, cum_particle_count = [],[]
-    for i, csvfile in enumerate(v2combo_list):
-        v2combo_df = pd.read_csv(csvfile, error_bad_lines=False, header=0, index_col=0)
-        if not v2combo_df.empty:
+    for i, csvfile in enumerate(particle_data_list):
+        particle_df = pd.read_csv(csvfile, error_bad_lines=False, header=0, index_col=0)
+        if not particle_df.empty:
             # pc_series = combo_df.perc_contrast#[  #(combo_df.perc_contrast > min_cont)
                                             #        (combo_df.perc_contrast <= max_cont)
                                             #        & (combo_df.cv_bg < cv_cutoff)
@@ -922,9 +997,9 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
                                         & (spot_df.scan_number == j)].values[0]
                 area_squm = int(float(area_str)*1e6)
 
-                protohisto_series = v2combo_df.perc_contrast[(v2combo_df.pass_number == j)
-                                                             &(v2combo_df.perc_contrast <= max_cont)
-                                                             &(v2combo_df.cv_bg < cv_cutoff)
+                protohisto_series = particle_df.perc_contrast[(particle_df.pass_number == j)
+                                                             &(particle_df.perc_contrast <= max_cont)
+                                                             &(particle_df.cv_bg < cv_cutoff)
                 ]
 
                 csv_id = '{}.{}.{}'.format(csvfile.split(".")[1], vpipes.three_digs(j), area_squm)
@@ -959,7 +1034,8 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
     os.chdir(iris_path)
 
 elif len(vdata_list) != (len(iris_txt) * pass_counter):
-    exit
+    print("Missing VIRAGO analysis files\n")
+    sys.exit()
 
 spot_df, histogram_dict = vquant.spot_remover(spot_df, histogram_dict,
                                               vdata_list, vcount_dir,
@@ -1023,10 +1099,12 @@ if (pass_counter > 1):# &(min_cont == 0):
         sns.set(style='ticks')
         c = 0
         for j, col in enumerate(smooth_histo_df):
-            split_col = col.split("_")
-            spot_type = split_col[0]
-            pass_num = int(split_col[-1])
-
+            splitcol = col.split("_")
+            if len(splitcol) == 2:
+                spot_type, pass_num = splitcol
+            else:
+                spot_type, pass_num = splitcol[::2]
+            pass_num = int(pass_num)
             if pass_num == i:
                 plt.errorbar(bin_array,
                          smooth_histo_df[col],
@@ -1087,7 +1165,7 @@ vgraph.chipArray_graph(spot_df, vhf_colormap,
 )
 
 spot_df_name='{}/{}_spot_data.{}contrast.v{}.csv'.format(virago_dir, chip_name,
-                                                         cont_window_str, version
+                                                         cont_str, version
 )
 spot_df.to_csv(spot_df_name)
 print('File generated: {}'.format(spot_df_name))
