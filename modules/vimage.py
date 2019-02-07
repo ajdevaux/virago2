@@ -132,7 +132,7 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
         if marker.ndim == 2:
             h, w = marker.shape
             locs = peak_local_max(match_template(image, marker, pad_input = True),
-                                  min_distance = 800,
+                                  min_distance = 775,
                                   threshold_rel = thresh,
                                   exclude_border = False,
                                   num_peaks = 4
@@ -152,23 +152,28 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
 
     if gen_mask == True:
         mask = np.zeros(shape = image.shape, dtype = bool)
-        # h += 5; w += 5
+
         found_markers = np.empty([len(locs),h,w], dtype = 'float64')
         bad_locs,bad_index = [],[]
         for i, coords in enumerate(locs):
             loc_y, loc_x = coords
             height, width = h/2, w/2
 
-            if loc_y < h:
-                height = loc_y
-            if loc_x < w:
-                width = loc_x
 
-            marker_w = np.arange(loc_x - width, loc_x + width + 1, dtype = int)
+            # if loc_y < h:
+            #     height = loc_y
+            # if loc_x < w:
+            #     width = loc_x
+
+
             marker_h = np.arange(loc_y - height, loc_y + height + 1, dtype = int)
+
+            marker_w = np.arange(loc_x - width,  loc_x + width + 1, dtype = int)
+
 
             mask[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]] = True
 
+            # gen_img(image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]])
             try:
                 found_markers[i] = image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]]
             except ValueError:
