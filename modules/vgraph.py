@@ -18,6 +18,32 @@ import sys
 A suite of graphing subroutines for IRIS images
 """
 #*********************************************************************************************#
+def get_vhf_colormap():
+    vhf_colormap = ('#e41a1c',
+                    '#377eb8',
+                    '#4daf4a',
+                    '#984ea3',
+                    '#ff7f00',
+                    '#cccc00',
+                    '#a65628',
+                    '#f781bf',
+                    'gray',
+                    'black',
+                    '#a6cee3',
+                    '#1f78b4',
+                    '#b2df8a',
+                    '#33a02c',
+                    '#fb9a99',
+                    '#e31a1c',
+                    '#fdbf6f',
+                    '#ff7f00',
+                    '#cab2d6',
+                    '#6a3d9a',
+                    '#ffff99',
+                    '#b15928'
+    )
+    return vhf_colormap
+#*********************************************************************************************#
 def _color_mixer(zlen,c1,c2,c3,c4):
     """A function to create color gradients from 4 input colors"""
     if zlen > 1:
@@ -85,7 +111,7 @@ def _circle_particles(particle_df, axes, exo_toggle):
     plt.ylabel("PARTICLE COUNT", color='w')
 #*********************************************************************************************#
 def gen_particle_image(pic_to_show, shape_df, spot_coords, pix_per_um, cv_cutoff,
-                        r2_cutoff, show_particles=True, scalebar=0, markers=[], exo_toggle=False):
+                        r2_cutoff=0, show_particles=True, scalebar=0, markers=[], exo_toggle=False):
     nrows, ncols=pic_to_show.shape
 
     cx,cy,rad=spot_coords
@@ -218,16 +244,16 @@ def sum_histogram(raw_histogram_df, spot_counter, pass_counter):
                 spot_histogram_df=pd.concat([spot_histogram_df, raw_histogram_df[col]], axis=1)
 
         pass_list = [col.split('_')[1] for col in spot_histogram_df]
-        if not pass_list == []:
-            init_scan = int(min(pass_list))
-            init_scan_cols=[col for col in spot_histogram_df.columns if int(col.split('_')[1]) == init_scan]
-            spot_histogram_df.drop(init_scan_cols, axis=1, inplace=True)
-            for i in pass_list[1:]:
-                new_name=str(y)+'_'+str(i)
-                cols_to_sum=[col for col in spot_histogram_df if int(col.split('_')[1]) <= int(i)]
-                sum_histogram_df= pd.concat([sum_histogram_df,
-                                         spot_histogram_df[cols_to_sum].sum(axis=1).rename(new_name)], axis=1
-                )
+        # if not pass_list == []:
+            # init_scan = int(min(pass_list))
+            # init_scan_cols=[col for col in spot_histogram_df.columns if int(col.split('_')[1]) == init_scan]
+            # spot_histogram_df.drop(init_scan_cols, axis=1, inplace=True)
+        for i in pass_list:
+            new_name=str(y)+'_'+str(i)
+            cols_to_sum=[col for col in spot_histogram_df if int(col.split('_')[1]) <= int(i)]
+            sum_histogram_df= pd.concat([sum_histogram_df,
+                                     spot_histogram_df[cols_to_sum].sum(axis=1).rename(new_name)], axis=1
+            )
 
     return sum_histogram_df
 #*********************************************************************************************#
@@ -236,16 +262,18 @@ def average_histogram(sum_histogram_df, spot_df, pass_counter, smooth_window=7):
     spot_type_list = []
     spot_df = spot_df[spot_df.validity==True]
     for val in spot_df.spot_type:
-        if val not in spot_type_list: spot_type_list.append(val)
-    for x in range(2,pass_counter+1):
+        if val not in spot_type_list:
+            spot_type_list.append(val)
+
+    for x in range(1,pass_counter+1):
         pass_histogram_df=pd.DataFrame()
         for col in sum_histogram_df.columns[1:]:
             if int(col.split('_')[1]) == x:
                 pass_histogram_df=pd.concat([pass_histogram_df, sum_histogram_df[col]], axis=1)
         for spot_type in spot_type_list:
             cols_to_avg=[col for col in pass_histogram_df
-                               if int(col.split('_')[0])
-                               in spot_df.spot_number[(spot_df.spot_type == spot_type)].tolist()
+                             if int(col.split('_')[0])
+                             in spot_df.spot_number[(spot_df.spot_type == spot_type)].tolist()
             ]
 
 
@@ -263,6 +291,76 @@ def average_histogram(sum_histogram_df, spot_df, pass_counter, smooth_window=7):
             avg_histogram_df=pd.concat([avg_histogram_df,smooth_df], axis=1)
 
     return avg_histogram_df
+#*********************************************************************************************#
+def generate_histogram(avg_histogram_df, pass_counter, mAb_dict_rev, chip_name, cont_str, histo_dir):
+    """Generates a histogram figure for each pass in the IRIS experiment from a
+    DataFrame representing the average data for every spot type"""
+
+    bin_array = np.array(avg_histogram_df.pop('bins'))
+
+    smooth_histo_df = avg_histogram_df.filter(regex='rollingmean').rename(columns=lambda x: x[:-12])
+
+    sdm_histo_df = avg_histogram_df.filter(regex='sdm').rename(columns=lambda x: x[:-4])
+
+    smooth_max = np.max(np.max(smooth_histo_df))
+
+    sdm_max = np.max(np.max(sdm_histo_df))
+
+    if np.isnan(sdm_max): sdm_max = 0
+
+    histo_max = np.round(smooth_max+sdm_max,2)
+
+    min_cont, max_cont = cont_str.split("-")
+
+    if pass_counter < 10: passes_to_show = 1
+    else: passes_to_show = pass_counter // 10
+    line_settings = dict(lw=2 ,alpha=0.75)
+    vhf_colormap = get_vhf_colormap()
+    for i in range(1, pass_counter+1, passes_to_show):
+        sns.set(style='ticks')
+        c = 0
+        for j, col in enumerate(smooth_histo_df):
+            splitcol = col.split("_")
+            if len(splitcol) == 2:
+                spot_type, pass_num = splitcol
+            else:
+                spot_type, pass_num = splitcol[::2]
+            pass_num = int(pass_num)
+            if pass_num == i:
+                plt.errorbar(bin_array,
+                         smooth_histo_df[col],
+                         yerr=sdm_histo_df[col],
+                         color = vhf_colormap[c],
+                         label = spot_type,
+                         elinewidth = 0.5,
+                         **line_settings
+                )
+                c += 1
+
+        plt.axhline(y=0, ls='dotted', c='k', alpha=0.75)
+        plt.axvline(x=int(min_cont), ls='dashed', c='k', alpha=0.8)
+
+        if len(mAb_dict_rev.keys()) <= 8:
+            plt.legend(loc = 'best', fontsize = 14)
+        else:
+            plt.legend(loc = 'best', fontsize = 8)
+
+        plt.ylabel("Frequency (kparticles/mm" + r'$^2$'+")", size = 14)
+        plt.xlabel("Contrast (%)", size = 14)
+
+        plt.yticks(np.arange(0, histo_max, round(histo_max/10,1)), size = 12)
+
+        xlabels = np.append(bin_array, int(max_cont))[::(len(bin_array) // 10)]
+        plt.xticks(xlabels, size = 12, rotation = 90)
+
+        plt.title(chip_name+" Pass "+str(i)+" Average Histograms")
+
+        figname = ('{}_combohisto_pass_{}_contrast_{}.png'.format(chip_name,i,cont_str))
+        plt.savefig('{}/{}'.format(histo_dir,figname), bbox_inches = 'tight')#, dpi = 150)
+        print("File generated: {}".format(figname))
+        plt.clf()
+
+
 #*********************************************************************************************#
 def intensity_profile_graph(shape_df, pass_num,zslice_count, dir, exo_toggle, img_name=''):
 
@@ -362,7 +460,7 @@ def average_spot_data(spot_df, pass_counter):
     return averaged_df
 #*********************************************************************************************#
 def generate_timeseries(spot_df, averaged_df, cont_window, mAb_dict,
-                        chip_name, sample_name, vhf_colormap, version,
+                        chip_name, sample_name, version,
                          scan_or_time='scan', baseline=True, savedir=''):
     """Generates a timeseries for the cumulate particle counts for each spot, and plots the average
     for each spot type"""
@@ -380,6 +478,8 @@ def generate_timeseries(spot_df, averaged_df, cont_window, mAb_dict,
     sns.set(style="ticks")
     fig=plt.figure(figsize=(8,6))
     ax1=fig.add_subplot(111)
+
+    vhf_colormap = get_vhf_colormap()
 
     for key in mAb_dict.keys():
         print(key)
@@ -432,7 +532,7 @@ def generate_timeseries(spot_df, averaged_df, cont_window, mAb_dict,
     print('File generated: {}'.format(plot_name))
     plt.clf(); plt.close('all')
 #*********************************************************************************************#
-def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name, vhf_colormap, version, savedir='', plot_3sigma=False):
+def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name, version, savedir='', plot_3sigma=False):
     """
     Generates a barplot for the dataset.
     Most useful for before and after scans (pass_counter == 2)
@@ -448,6 +548,7 @@ def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name
 
     fig, (ax1, ax2)=plt.subplots(1, 2, figsize=(8, 6), sharey=True)
     sns.set_style('darkgrid')
+    vhf_colormap = get_vhf_colormap()
 
     sns.barplot(y='kparticle_density',x='spot_type',hue='scan_number',data=firstlast_spot_df,
                  palette = 'binary', errwidth=2, ci='sd', ax=ax1
@@ -483,7 +584,7 @@ def generate_barplot(spot_df, pass_counter, cont_window,  chip_name, sample_name
 #*********************************************************************************************#
 def filo_image_gen(shape_df, pic1, pic2, pic3,
                   ridge_list, sphere_list, ridge_list_s,
-                  cv_cutoff=0.02, r2_cutoff=0.85, show=True):
+                  cv_cutoff=0.1, r2_cutoff=0.85, show=True):
 
     fig=plt.figure(figsize=(24, 8))
 
@@ -506,17 +607,17 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
                  color='red', fontsize='9', horizontalalignment='right')
 
     for i in shape_df.index:
-        bbox, r2, centroid = shape_df[['bbox_verts', 'r2_corr', 'centroid']].loc[i]
+        bbox, cv, centroid,pc = shape_df[['bbox_verts', 'cv_bg', 'centroid','perc_contrast']].loc[i]
 
         lowleft_x = bbox[0][1]
         lowleft_y = bbox[0][0]
 
-        if r2 >= r2_cutoff:
+        if cv <= cv_cutoff:
             color = 'c'
         else:
-            color = 'k'
+            color = 'r'
 
-        ax1.text(y=centroid[0], x=centroid[1], s=str(r2),
+        ax1.text(y=centroid[0], x=centroid[1], s=str(pc),
                  color=color, fontsize='9', horizontalalignment='left')
 
         particle_box = plt.Rectangle((lowleft_x-1,lowleft_y-2),
@@ -553,7 +654,7 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
     plt.clf()
     # sys.exit()
 #*********************************************************************************************#
-def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
+def chipArray_graph(spot_df, chip_name='IRIS chip',
                     sample_name ='',exo_toggle=False, cont_str='', version='',
                     savedir='/Users/dejavu/Desktop'
                     ):
@@ -563,6 +664,7 @@ def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
     last_scan = max(spot_df.scan_number)
     spot_array = np.array(spot_df.spot_number[::last_scan])
     total_spots = max(spot_array)
+    vhf_colormap = get_vhf_colormap()
 
     linx,liny= zip(*(spot_df.chip_coords_xy[::last_scan]))
     linx = np.array(linx,dtype='float') / 1000
@@ -596,7 +698,7 @@ def chipArray_graph(spot_df, vhf_colormap, chip_name='IRIS chip',
 
         dz_pre = np.array(prescan_df.kparticle_density)
 
-        rad_list = np.sqrt(np.array(prescan_df.area,dtype='float')/np.pi)
+        rad_list = np.sqrt(np.array(prescan_df.area_sqmm,dtype='float')/np.pi)
         color = vhf_colormap[n]
         for i,r in enumerate(rad_list):
             Ab_spot=Circle((xpos[i],ypos[i]),r,facecolor=color, edgecolor ='k',alpha=0.75)

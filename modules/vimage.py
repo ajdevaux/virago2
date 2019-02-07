@@ -196,7 +196,7 @@ def spot_finder(image, rad_range = (525, 651), Ab_spot = True):
     print("Spot center coordinates (row, column, radius): {}\n".format(xyr))
     return xyr
 #*********************************************************************************************#
-def clahe_3D(img_stack, cliplim = 0.003):
+def clahe_3D(img_stack, kernel_size = None, cliplim = 0.002):
     """Performs the contrast limited adaptive histogram equalization on the stack of images"""
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
@@ -207,7 +207,7 @@ def clahe_3D(img_stack, cliplim = 0.003):
         warnings.warn(UserWarning)##Images are acutally converted to uint16 for some reason
 
         for plane, image in enumerate(img_stack):
-            img3D_clahe[plane] = equalize_adapthist(image, clip_limit = cliplim)
+            img3D_clahe[plane] = equalize_adapthist(image, kernel_size, clip_limit = cliplim)
 
     return img3D_clahe
 #*********************************************************************************************#
@@ -264,52 +264,53 @@ def measure_rotation(marker_dict, spot_pass_str):
     return img_rot_deg
 #*********************************************************************************************#
 def _dict_matcher(_dict, spot_num, pass_num, mode = 'series'):
-    if mode == 'baseline': prev_pass = 1
-    elif mode == 'series': prev_pass = pass_num - 1
+    """Sub-function for retreving the marker locations (R,C format) of the two images being compared"""
+    if mode == 'baseline':
+        prev_pass = 1
+    elif mode == 'series':
+        prev_pass = pass_num - 1
+
+
     for key in _dict.keys():
-        split_key = key.split('.')
-        if (int(split_key[0]) == int(spot_num)) & (int(split_key[1]) == int(prev_pass)):
+        key0, key1 = map(lambda x: int(x), key.split('.'))
+        if (key0 == spot_num) & (key1 == prev_pass):
             prev_vals = _dict[key]
-        elif (int(split_key[0]) == int(spot_num)) & (int(split_key[1]) == int(pass_num)):
+        elif (key0 == spot_num) & (key1 == pass_num):
             new_vals = _dict[key]
     return prev_vals, new_vals
 #*********************************************************************************************#
 def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
+    """Measures the Row, Column shift of pixels between the original image and the subsequent image"""
     overlay_toggle = True
-    if pass_num > 1:
-        prev_locs, new_locs = _dict_matcher(marker_dict, spot_num, pass_num, mode = mode)
-        plocs_ct = len(prev_locs)
-        nlocs_ct = len(new_locs)
 
-        if plocs_ct != nlocs_ct:
-            max_shift = 100
-        else:
-            max_shift = 150
+    prev_locs, new_locs = _dict_matcher(marker_dict, spot_num, pass_num, mode = mode)
+    plocs_ct = len(prev_locs)
+    nlocs_ct = len(new_locs)
 
-        if (plocs_ct > 0) & (nlocs_ct > 0):# & (plocs_ct == nlocs_ct):
-            shift_array = np.asarray([np.subtract(coords1, coords0)
-                                      for coords0 in prev_locs
-                                      for coords1 in new_locs
-                                      if np.all(abs(np.subtract(coords1, coords0)) <= max_shift)
-            ])
-        else:
-            shift_array = np.asarray([])
+    if plocs_ct != nlocs_ct:
+        max_shift = 100
+    else:
+        max_shift = 150
 
-        if (shift_array.size > 0) & (shift_array.ndim == 1):
-            mean_shift = shift_array
-            print("Image shift: {}".format(mean_shift))
-            overlay_toggle = True
-        elif shift_array.size == 0:
-            mean_shift =  [0, 0]
-            print("No compatible markers, cannot compute shift")
-            overlay_toggle = False
-        else:
-            mean_shift = np.mean(shift_array, axis = 0)
-            print("Image shift: {}\n".format(mean_shift))
-            overlay_toggle = True
+    if (plocs_ct > 0) & (nlocs_ct > 0):
+        shift_array = np.asarray([np.subtract(coords1, coords0)
+                                  for coords0 in prev_locs
+                                  for coords1 in new_locs
+                                  if np.all(abs(np.subtract(coords1, coords0)) <= max_shift)
+        ])
+    else:
+        shift_array = np.asarray([])
+
+    if shift_array.size > 0:
+        mean_shift = np.mean(shift_array, axis = 0)
+        overlay_toggle = True
     else:
         mean_shift = (0,0)
         overlay_toggle = False
+    # else:
+    #     mean_shift =
+    #     overlay_toggle = True
+
 
     return tuple(mean_shift), overlay_toggle
 #*********************************************************************************************#

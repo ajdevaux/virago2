@@ -4,23 +4,23 @@ from __future__ import division
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import glob
 import os
 import sys
 import warnings
+import argparse
 
 from future.builtins import input
 from datetime import datetime
 from skimage import io as skio
-from skimage.filters import sobel_h, sobel_v
-from skimage.feature import shape_index, canny
+from skimage.filters import sobel_h, sobel_v, threshold_otsu
+from skimage.feature import shape_index, canny, register_translation
 from skimage.measure import label, regionprops
 from scipy import ndimage as ndi
-from scipy.optimize import curve_fit
+from scipy.spatial import cKDTree
 
 from modules import vpipes, vimage, vquant, vgraph
-from modules.filographs import filohisto
+# from modules.filographs import filohisto
 from images import logo
 
 
@@ -28,8 +28,11 @@ pd.set_option('display.width', 1000)
 pd.options.display.max_rows=999
 pd.options.display.max_columns=15
 logo.print_logo()
-version = '2.11.0'
+version = '2.11.3'
 """
+Version 2.11.3 = Bugfix for CLAHE algorithm that was adding horizontal line artifact
+Version 2.11.2 = Added function to prevent counting of halo artifacts of bright particles
+Version 2.11.1 = Removed corr function for now. Fixed bug in percent contrast calculation.
 Version 2.11.0 = Added a correlation function to better select pixels that are nanoparticles.
                   This increases analysis time. Only works with large-stack data (>21 images)
 Version 2.10.8 = Modified thresholds for shape finding; narrowed the window of the maxmin projection
@@ -47,9 +50,6 @@ Version 2.6 = Using mask to remove old particles instead of relying on subtracti
 """
 print("VERSION {}\n".format(version))
 print(os.path.dirname(__file__))
-
-def psf_sine(x,a,b,c):
-    return a * np.sin(b * x + c)
 
 def find_focus_by_3methods(pic3D):
     """
@@ -103,8 +103,17 @@ def fourier_map(pic3D):
 #
 #*********************************************************************************************#
 ##Quick-change Boolean Parameters
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--foo", help="foo Help")
+
+args = parser.parse_args()
+
+print(sys.argv)
+
+
 show_particles = True ##show particle info on output images
-show_filos = True
+show_filos = False
 Ab_spot_mode = True ##change to False if chips have not been spotted with antibody microarray
 
 #*********************************************************************************************#
@@ -166,9 +175,11 @@ if xml_file:
         print("Exoviewer images\n")
         if Ab_spot_mode == True:
             cliplim = 0.002
+            perc_range = (3,97)
         else:
-            cliplim = 0.004
-        perc_range = (3,97)
+            cliplim = 0.008
+            perc_range = (3,97)
+        kernel_size = [270,404]
         cam_micron_per_pix = 3.45 * 2
         mag = 44
         exo_toggle = True
@@ -183,6 +194,7 @@ if xml_file:
     elif meta_dict['chipversion'] == '5':
         print("In-liquid chip\n")
         cliplim = 0.004
+        kernel_size = None
         perc_range = (3,97)
         cam_micron_per_pix = 5.86
         mag = 40
@@ -314,7 +326,8 @@ if image_toggle.lower() not in ('no', 'n'):
     if image_toggle.isdigit():
         spot_to_scan = int(image_toggle)
     startTime = datetime.now()
-    circle_dict, shift_dict, rotation_dict, marker_dict, overlay_dict = {},{},{},{},{}
+
+    circle_dict, marker_dict, overlay_dict = {},{},{}
 
     while spot_to_scan <= spot_counter:
 
@@ -375,25 +388,21 @@ if image_toggle.lower() not in ('no', 'n'):
 
             pic3D_norm[pic3D_norm > 1] = 1
 
-            pic3D_clahe = vimage.clahe_3D(pic3D_norm, cliplim=cliplim)##UserWarning silenced
+            pic3D_clahe = vimage.clahe_3D(pic3D_norm, kernel_size = kernel_size, cliplim=cliplim)##UserWarning silenced
 
             pic3D_rescale = vimage.rescale_3D(pic3D_clahe, perc_range=(perc_range))
-            # vimage.gen_img(pic3D_rescale[9])
+
+
+
             print("Contrast adjusted\n")
 
-            if pass_num == 1:
-                marker = IRISmarker
-                # found_markers = []
-            else:
+            if pass_num > 1:
                 marker = found_markers
+            else:
+                marker = IRISmarker
 
-            marker_locs, marker_mask, found_markers = vimage.marker_finder(image = pic3D_norm[0],
-                                               marker = marker,
-                                               thresh = 0.65,
-                                               gen_mask = True,
-            )
-            # for marker in found_markers:
-            #     vimage.gen_img(marker)
+            marker_locs, marker_mask, found_markers = vimage.marker_finder(image = pic3D_norm[0], marker = marker,  thresh = 0.65,  gen_mask = True)
+
             marker_dict[spot_pass_str] = marker_locs
 
             pos_plane_list = []
@@ -436,65 +445,35 @@ if image_toggle.lower() not in ('no', 'n'):
                 neg_plane = -1
 
 
-
-            # def tenengrad(pic3D):
-            #   z, nrows, ncols = pic3D.shape
-                # pic3D_center = pic3D[:,(nrows//2-100):(nrows//2+100),(ncols//2-100):(ncols//2+100)]
-
-            #     laplace_sum = sum(laplace_vals)
-            #     laplace_vals_norm = [val/laplace_sum for val in laplace_vals]
-            #     teng_diff = list(np.diff(teng_vals))
-            #     laplace_diff = list(np.diff(laplace_vals))
-            #     teng_sign = []
-            #     # for val in teng_diff:
-            #     #     if val < 0:
-            #     #         teng_sign.append('Neg')
-            #     #     elif val > 0:
-            #     #         teng_sign.append('Pos')
-            #     #     else:
-            #     #         teng_sign.append(None)
-            #     print(teng_sign)
-            #     print(teng_diff.index(min(teng_diff))+1)
-            #     print(laplace_diff.index(min(laplace_diff))+1)
-            #     plt.plot(teng_vals_norm)
-            #     plt.plot(laplace_vals_norm)
-            #     plt.show()
-            #     plt.clf()
-
-
-
-
-
-            # find_focus(pic3D_rescale)
-
             pic_rescale_pos = pic3D_rescale[pos_plane]
+
+            # vimage.gen_img(pic_rescale_pos)
+
             print("Using image {} from stack\n".format(vpipes.three_digs(pos_plane + 1)))
 
             pic_maxmin = np.max(pic3D_rescale, axis = 0) - np.min(pic3D_rescale, axis = 0)
-
-            # pic3D_rescale_posneg = pic3D_rescale[pos_plane:neg_plane]
-            # pic_stdproj = np.std(pic3D_rescale_posneg, axis=0)
-
-
-
-            # vimage.image_details(pic3D_norm[9],pic3D_clahe[9],pic3D_rescale[9],pic_canny)
+            if pass_counter <= 10:
+                overlay_mode = 'series'
+            else:
+                overlay_mode = 'baseline'
 
 
+            if pass_num > first_scan:
+                mean_shift, overlay_toggle = vimage.measure_shift(marker_dict, pass_num, spot_num, mode = overlay_mode)
 
-            # img_rotation = vimage.measure_rotation(marker_dict, spot_pass_str)
-            # rotation_dict[spot_pass_str] = img_rotation
+            else:
+                print("First Valid Scan\n")
+                pic_maxmin_baseline = pic_maxmin.copy()
+                mean_shift = (0,0)
+                overlay_toggle = False
 
-            if pass_counter <= 10: overlay_mode = 'series'
-            else: overlay_mode = 'baseline'
+            # shift_dict[spot_pass_str] = mean_shift
 
-            mean_shift, overlay_toggle = vimage.measure_shift(marker_dict, pass_num,
-                                                              spot_num, mode = overlay_mode
-            )
-            shift_dict[spot_pass_str] = mean_shift
+            # skimage_shift, error, diffphase = register_translation(pic_maxmin, pic_maxmin_baseline)
+            # print("Skimage shift: {}, error {}".format(skimage_shift, error))
 
-
-            if (overlay_toggle == True):# & (finish_anal not in ('yes', 'y')):
-                print("Valid Shift\n")
+            if overlay_toggle == True:
+                print("Valid Shift: {}\n".format(mean_shift))
                 # img_overlay = vimage.overlayer(overlay_dict, overlay_toggle, spot_num, pass_num,
                 #                                 mean_shift, mode = overlay_mode)
                 # if img_overlay is not None:
@@ -505,8 +484,8 @@ if image_toggle.lower() not in ('no', 'n'):
                 #                    show = False)
             elif (overlay_toggle == False) & (pass_num != first_scan):
                 validity = False
-            elif pass_num == first_scan:
-                print("First Valid Scan\n")
+                print("No compatible markers, cannot compute shift")
+
             else:
                 print("Cannot overlay images\n")
 
@@ -518,7 +497,7 @@ if image_toggle.lower() not in ('no', 'n'):
                 circle_dict[spot_num] = spot_coords
             else:
                 pic_canny = canny(pic_maxmin, sigma = canny_sig)
-                # vimage.gen_img(pic_canny)
+
                 spot_coords = vimage.spot_finder(pic_canny,
                                                  rad_range=(325,601),
                                                  Ab_spot=Ab_spot_mode
@@ -543,7 +522,6 @@ if image_toggle.lower() not in ('no', 'n'):
 
 
             pic_to_show = pic_rescale_pos
-
 
 
 #*********************************************************************************************#
@@ -580,18 +558,17 @@ if image_toggle.lower() not in ('no', 'n'):
 
             print("Median intensity of spot = {}\n".format(round(maxmin_median,4)))
 
-            if Ab_spot_mode == False:
-                maxmin_median = 0.3
-                print("Adjusted median intensity of spot = {}\n".format(round(maxmin_median,4)))
-
             ridge = 0.5
             sphere = 1
-            # if Ab_spot_mode == True:
-            ridge_thresh = maxmin_median*4
-            sphere_thresh = maxmin_median*2
-            ridge_thresh_s = maxmin_median*3
 
-
+            if Ab_spot_mode == True:
+                ridge_thresh = maxmin_median*4
+                sphere_thresh = maxmin_median*2
+                ridge_thresh_s = maxmin_median*3
+            else:
+                ridge_thresh = maxmin_median*2
+                sphere_thresh = maxmin_median*1.5
+                ridge_thresh_s = maxmin_median*2
 
             ridge_list = vquant.classify_shape(shapedex, pic_maxmin, ridge,
                                                delta=0.25, intensity=ridge_thresh
@@ -608,8 +585,6 @@ if image_toggle.lower() not in ('no', 'n'):
             pix_list = ridge_list + sphere_list
             ridge_list_s = [coord for coord in ridge_list_s if coord not in pix_list]
             pix_list = pix_list + ridge_list_s
-
-            # raise NameError
 
 
             pic_binary = np.zeros_like(pic_maxmin, dtype=int)
@@ -628,8 +603,7 @@ if image_toggle.lower() not in ('no', 'n'):
 
 #*********************************************************************************************#
             ##EXTRACT DATA FROM THE BINARY IMAGE
-            binary_props = regionprops(label(pic_binary, connectivity = 2),
-                                       pic3D[pos_plane], cache = True
+            binary_props = regionprops(label(pic_binary, connectivity=2), pic3D[pos_plane], cache=True
             )
 
             with warnings.catch_warnings():
@@ -656,13 +630,18 @@ if image_toggle.lower() not in ('no', 'n'):
                                                         shape_df.area, shape_df.perim)
                 )
                 shape_df['elongation'] = shape_df.maj_ax / shape_df.min_ax
-                shape_df['bbox_verts'] = [np.array([(bbox[0][0] - 2, bbox[0][1] - 2),
-                                                    (bbox[0][0] - 2, bbox[1][1] + 2),
-                                                    (bbox[1][0] + 2, bbox[1][1] + 2),
-                                                    (bbox[1][0] + 2, bbox[0][1] - 2)])
+                shape_df['bbox_verts'] = [np.array([(bbox[0][0] - 2, bbox[0][1] - 2),#top left
+                                                    (bbox[0][0] - 2, bbox[1][1] + 2),#top right
+                                                    (bbox[1][0] + 2, bbox[1][1] + 2),#bottom right
+                                                    (bbox[1][0] + 2, bbox[0][1] - 2)])#bottom left
                                            for bbox in shape_df.bbox
                 ]
                 shape_df.drop(columns=['bbox', 'perim', 'maj_ax', 'min_ax'], inplace=True)
+
+
+
+
+
             else:
                 print("----No valid particle shapes----\n")
                 print(shape_df)
@@ -671,8 +650,10 @@ if image_toggle.lower() not in ('no', 'n'):
                         f.write('{}: {}\n'.format(k,v))
 
                 vgraph.gen_particle_image(pic_to_show,shape_df,spot_coords,
-                                          pix_per_um=pix_per_um, cv_cutoff=cv_cutoff,
+                                          pix_per_um=pix_per_um,
                                           show_particles=False,
+                                          cv_cutoff=cv_cutoff,
+                                          r2_cutoff=0,
                                           scalebar=15, markers=marker_locs,
                                           exo_toggle=exo_toggle
                 )
@@ -682,49 +663,9 @@ if image_toggle.lower() not in ('no', 'n'):
                 continue
 
 #*********************************************************************************************#
+            neighbor_tree = cKDTree(np.array(shape_df.centroid.tolist()))
 
-
-            def measure_z_stack(z_stack, std_z_stack, a0=0.1, b0=0.1, c0=1, show = False):
-
-                x_data = np.arange(0,len(z_stack))
-
-                maxa, mina = max(z_stack), min(z_stack)
-                max_z = z_stack.index(maxa)
-                intensity = round(maxa - mina,5)
-
-                basedex = (max_z + z_stack.index(mina)) // 2
-                y_data = list(map(lambda x: x - z_stack[basedex], z_stack))
-
-
-                try:
-                    fit_params, params_cov = curve_fit(psf_sine, x_data, y_data,
-                                                        sigma=std_z_stack,
-                                                        p0=[a0, b0, c0],
-                                                            # bounds=([0.05,0.3,1],[0.4,0.5,1.2]),
-                                                        method='lm')
-                except RuntimeError:
-                    return 0, intensity, max_z
-
-
-                y_fit = psf_sine(x_data,fit_params[0],fit_params[1],fit_params[2])
-
-                ss_res = np.sum((y_data - y_fit)**2)
-                ss_tot = np.sum((y_data - np.mean(y_data))**2)
-                r2 = round(1 - (ss_res / ss_tot),5)
-
-                if show == True:
-                    plt.plot(y_fit)
-                    plt.errorbar(x=x_data,y=y_data,yerr=std_z_stack, linestyle='--')
-                    plt.text(x=0,y=0, s='R^2 = {0}; a,b,c = {1}'.format(r2,np.round(fit_params,4)))
-
-                    plt.xlim(-5,25)
-                    plt.show()
-
-                return r2, intensity, max_z
-
-
-
-
+            neighbor_tree_dist = np.array(list(neighbor_tree.query_pairs(20)))
 
             filo_pts_tot, round_pts_tot  = [],[]
             r2_list, greatest_max_list, max_z_list, intensity_list, z_stacks = [],[],[],[],[]
@@ -740,10 +681,6 @@ if image_toggle.lower() not in ('no', 'n'):
                 filo_pts_tot.append(filo_pts)
                 round_pts_tot.append(round_pts)
 
-                # pix_max_list, z_list = vquant.measure_max_intensity_stack(pic3D, coord_array)
-
-                # greatest_max.append(np.max(pix_max_list))
-                # max_z.append(z_list[pix_max_list.index(max(pix_max_list))])
                 all_z_stacks = np.array([list(pic3D_norm[:,coords[0],coords[1]])
                                                 for coords in coord_array])
                 greatest_max = np.max(all_z_stacks)
@@ -751,13 +688,15 @@ if image_toggle.lower() not in ('no', 'n'):
                 mean_z_stack = list(np.round(np.mean(all_z_stacks, axis=0),4))
                 std_z_stack = list(np.round(np.std(all_z_stacks, axis=0),4))
 
-                r2, intensity, max_z = measure_z_stack(mean_z_stack,std_z_stack, show=True)
+                intensity, max_z, r2 = vquant.measure_defocus(mean_z_stack,std_z_stack, measure_corr=False)
 
-                r2_list.append(r2)
-                intensity_list.append(intensity)
-                max_z_list.append(max_z)
                 greatest_max_list.append(greatest_max)
                 z_stacks.append(mean_z_stack)
+
+                intensity_list.append(intensity)
+                max_z_list.append(max_z)
+                r2_list.append(r2)
+
 
             shape_df['intensity'] = intensity_list
             shape_df['max_z'] = max_z_list
@@ -766,87 +705,36 @@ if image_toggle.lower() not in ('no', 'n'):
             shape_df['r2_corr'] = r2_list
             shape_df['filo_points'] = filo_pts_tot
             shape_df['round_points'] = round_pts_tot
-            # raise Error
-            # def measure_psf_corr(z_stacks, a0=0.1, b0=0.15, c0=1.2, show = False):
-            #     # z_stacks = [list(pic3D[:, val[0], val[1]]) for val in pix_list]
-            #     x_data = np.arange(0,len(z_stacks[0]))
-            #     r2_list, intensity_list = [],[]
-            #     for i,arr in enumerate(z_stacks):
-            #         maxa, mina = max(arr), min(arr)
-            #         intensity_list.append(round(maxa - mina,5))
-            #         basedex = (arr.index(maxa) + arr.index(mina)) // 2
-            #         y_data = list(map(lambda x: x - arr[basedex], arr))
-            #
-            #         try: fit_params, params_cov = curve_fit(psf_sine, x_data, y_data,
-            #                                                 p0=[a0, b0, c0],
-            #                                                 # bounds=([0.05,0.3,1],[0.4,0.5,1.2]),
-            #                                                 method='lm')
-            #         except RuntimeError:
-            #             r2_list.append(0)
-            #             continue
-            #
-            #         y_fit = psf_sine(x_data,fit_params[0],fit_params[1],fit_params[2])
-            #
-            #         ss_res = np.sum((y_data - y_fit)**2)
-            #         ss_tot = np.sum((y_data - np.mean(y_data))**2)
-            #         r_sq = round(1 - (ss_res / ss_tot),5)
-            #         r2_list.append(r_sq)
-            #
-            #         if show == True:
-            #             plt.plot(y_fit)
-            #             plt.scatter(x=x_data,y=y_data)
-            #             plt.text(x=0,y=0, s='R^2 = {}'.format(r_sq))
-            #             plt.xlim(-5,25)
-            #             plt.show()
-            #
-            #     return r2_list #pd.DataFrame({'coords':pix_list,'r2':r2_list,'intensity':intensity_list})
-            #
-            #
-            # shape_df['r2_corr'] = measure_psf_corr(z_stacks, show = False)
-            print("Done measuring corr\n")
 
 
 
+            bbox_pixels = [vquant.get_bbox_pixels(bbox, pic3D_norm[z])
+                           for i, z, bbox in shape_df[['max_z','bbox_verts']].itertuples()
+            ]
 
-
-            median_bg_list, cv_bg_list = [],[]
-
-            for i, bbox in enumerate(shape_df['bbox_verts']):
-                plane = shape_df['max_z'].loc[i]-1
-
-                bbox[:,0][np.where(bbox[:,0] >= nrows)] = nrows - 1
-                bbox[:,1][np.where(bbox[:,1] >= ncols)] = ncols - 1
-
-                top_edge = pic3D[plane][bbox[0][0],bbox[0][1]:bbox[1][1]+1]
-                bottom_edge = pic3D[plane][bbox[1][0]-1,bbox[0][1]:bbox[1][1]+1]
-                rt_edge = pic3D[plane][bbox[0][0]:bbox[1][0]+1,bbox[1][1]]
-                left_edge = pic3D[plane][bbox[0][0]:bbox[1][0]+1,bbox[0][1]]
-                all_edges = np.hstack([top_edge, bottom_edge, rt_edge, left_edge])
-
-                median_bg = np.median(all_edges)
-                cv_bg = np.std(all_edges) / np.mean(all_edges)
-
-                median_bg_list.append(median_bg)
-                cv_bg_list.append(cv_bg)
-
-
-            shape_df['median_bg'] = median_bg_list
-            shape_df['cv_bg'] = cv_bg_list
-
-
-            shape_df = shape_df[(shape_df['filo_points'] + shape_df['round_points']) >= 1]
+            shape_df['median_bg'], shape_df['cv_bg'] = zip(*[(round(np.median(arr),4),
+                                                              round(np.std(arr) / np.mean(arr),4))
+                                                              for arr in bbox_pixels]
+            )
 
             shape_df['perc_contrast'] = ((shape_df['greatest_max'] - shape_df['median_bg'])*100
                                                     / shape_df['median_bg']
             )
+
+            overlap_ix = vquant.mark_overlaps(neighbor_tree_dist, shape_df)
+
+            shape_df.loc[shape_df.index.isin(overlap_ix),'cv_bg' ] = 100
+
             shape_df = shape_df[(shape_df['filo_points'] + shape_df['round_points']) >= 1]
 
-            shape_df['filo_score'] = ((shape_df['filo_points']/shape_df['area'])
-                                     - (shape_df['round_points']/shape_df['area'])
+            shape_df['filo_score'] = ((shape_df['filo_points'] / shape_df['area'])
+                                     -(shape_df['round_points'] / shape_df['area'])
             )
 
 #---------------------------------------------------------------------------------------------#
-            filo_df = shape_df[(shape_df.filo_score >= 0.25) & (shape_df.area > 10)].copy()
+            filo_df = shape_df[(shape_df.filo_score >= 0.25)
+                                & (shape_df.area > 10)
+                                & (shape_df.cv_bg < cv_cutoff)].copy()
 
 
             filolen_df = pd.DataFrame([vquant.measure_filo_length(coords,pix_per_um) for coords in filo_df.coords],
@@ -865,18 +753,30 @@ if image_toggle.lower() not in ('no', 'n'):
                     if mirror.size == fluor_img.size:
                         fluor_img = fluor_img / mirror
 
-                    fluor_rescale = vgraph.fluor_overlayer(fluor_img, pic_maxmin,
+                    fluor_bg = np.median(fluor_img) * 2
+                    fluor_norm = fluor_img / fluor_bg
+
+                    # fluor_binary = np.zeros_like(fluor_norm, dtype=int)
+                    # for coord in pix_list:
+                    #     if fluor_norm == 0: pic_binary[coord] = 1
+
+                    fluor_binary = fluor_norm >= (np.std(fluor_norm)*1.5)
+
+                    vimage.gen_img(fluor_binary)
+
+
+
+                    fluor_rescale = vgraph.fluor_overlayer(fluor_norm, pic_maxmin,
                                                            fluor_filename, savedir=fluor_dir
                     )
 
             if (show_filos == True):
                 vgraph.filo_image_gen(shape_df, pic_rescale_pos, shapedex, pic_binary,
                                       ridge_list, sphere_list, ridge_list_s,
-                                      cv_cutoff=cv_cutoff, r2_cutoff = r2_cutoff, show=True
+                                      cv_cutoff=cv_cutoff, r2_cutoff = 0, show=True
                 )
-            # raise NameError
 #*********************************************************************************************#
-            valid_shape_df = shape_df[(shape_df['cv_bg'] < cv_cutoff) & (shape_df['r2_corr'] >= 0.9)]
+            valid_shape_df = shape_df[(shape_df['cv_bg'] < cv_cutoff)]# & (shape_df['r2_corr'] >= 0.9)]
 
 
 #---------------------------------------------------------------------------------------------#
@@ -911,13 +811,13 @@ if image_toggle.lower() not in ('no', 'n'):
             vgraph.gen_particle_image(pic_to_show,total_shape_df,spot_coords,
                                       pix_per_um=pix_per_um,
                                       cv_cutoff=cv_cutoff,
-                                      r2_cutoff=r2_cutoff,
+                                      r2_cutoff=0,
                                       show_particles=show_particles,
                                       scalebar=15, markers=marker_locs,
                                       exo_toggle=exo_toggle
             )
 
-            # plt.show()
+
             plt.savefig('{}/{}.{}.png'.format(img_dir, img_name, spot_type), dpi = 96)
             plt.clf(); plt.close('all')
             print("#******************PNG generated for {}************************#".format(img_name))
@@ -931,7 +831,9 @@ if image_toggle.lower() not in ('no', 'n'):
         analysis_time = str(datetime.now() - startTime)
 
         spot_to_scan += 1
+
         print("Time to scan images: {}".format(analysis_time))
+        # raise NameError
 #*********************************************************************************************#
     info_dict = {'chip_name'      : chip_name,
                  'sample_info'    : sample_name,
@@ -969,12 +871,9 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
 
     cont_window = [min_cont, max_cont]
 
-    vdata_dict ={}
-    for vfile in vdata_list:
-        vdata_dict = vquant.vdata_reader(vfile, vdata_dict, prop_list=['area_sqmm'])
+    vdata_df = vquant.vdata_reader(vdata_list)
 
-    spot_df['area'] = vdata_dict['area_sqmm']
-    spot_df['validity'] = vdata_dict['validity']
+    spot_df = pd.concat([spot_df, vdata_df[['area_sqmm','validity']]], axis=1)
 
 
     particle_counts, filo_counts,irreg_counts = [],[],[]
@@ -993,7 +892,7 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
             cumulative_particles = 0
             for j in range(1,pass_counter+1):
 
-                area_str = spot_df.area[  (spot_df.spot_number == i+1)
+                area_str = spot_df.area_sqmm[  (spot_df.spot_number == i+1)
                                         & (spot_df.scan_number == j)].values[0]
                 area_squm = int(float(area_str)*1e6)
 
@@ -1024,10 +923,10 @@ if len(vdata_list) >= (len(iris_txt) * pass_counter):
     spot_df['new_particles'] = new_particle_count
     spot_df['cumulative_particles'] = cum_particle_count
     spot_df['kparticle_density'] = np.round(cum_particle_count
-                                            / spot_df.area.astype(float) * 0.001, 3
+                                            / spot_df.area_sqmm.astype(float) * 0.001, 3
     )
 
-    spot_df.loc[spot_df.kparticle_density == 0, 'valid'] = False
+    spot_df.loc[spot_df.kparticle_density == 0, 'validity'] = False
 
     spot_df['normalized_density'] = vquant.density_normalizer(spot_df, spot_counter)
 
@@ -1041,127 +940,45 @@ spot_df, histogram_dict = vquant.spot_remover(spot_df, histogram_dict,
                                               vdata_list, vcount_dir,
                                               iris_path, quarantine_img=False
 )
-
-vhf_colormap = ('#e41a1c',
-                '#377eb8',
-                '#4daf4a',
-                '#984ea3',
-                '#ff7f00',
-                '#cccc00',
-                '#a65628',
-                '#f781bf',
-                'gray',
-                'black',
-                '#a6cee3',
-                '#1f78b4',
-                '#b2df8a',
-                '#33a02c',
-                '#fb9a99',
-                '#e31a1c',
-                '#fdbf6f',
-                '#ff7f00',
-                '#cab2d6',
-                '#6a3d9a',
-                '#ffff99',
-                '#b15928',
-)
-
+print(spot_df)
+vhf_colormap = vgraph.get_vhf_colormap()
 
 #*********************************************************************************************#
 ##HISTOGRAM CODE
-if (pass_counter > 1):# &(min_cont == 0):
-    raw_histogram_df = vgraph.histogrammer(histogram_dict, spot_counter, cont_window)
-    raw_histogram_df.to_csv('{}/{}_raw_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
+# if (pass_counter > 0):# &(min_cont == 0):
+raw_histogram_df = vgraph.histogrammer(histogram_dict, spot_counter, cont_window)
+raw_histogram_df.to_csv('{}/{}_raw_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
 
-    sum_histogram_df = vgraph.sum_histogram(raw_histogram_df, spot_counter, pass_counter)
-    sum_histogram_df.to_csv('{}/{}.sum_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
+sum_histogram_df = vgraph.sum_histogram(raw_histogram_df, spot_counter, pass_counter)
+sum_histogram_df.to_csv('{}/{}.sum_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
 
-    avg_histogram_df = vgraph.average_histogram(sum_histogram_df, spot_df, pass_counter)
-    avg_histogram_df.to_csv('{}/{}_avg_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
+avg_histogram_df = vgraph.average_histogram(sum_histogram_df, spot_df, pass_counter)
+avg_histogram_df.to_csv('{}/{}_avg_histogram_data.v{}.csv'.format(histo_dir, chip_name, version))
+
+vgraph.generate_histogram(avg_histogram_df, pass_counter, mAb_dict_rev, chip_name, cont_str, histo_dir)
+
 #*********************************************************************************************#
-    """Generates a histogram figure for each pass in the IRIS experiment from a
-    DataFrame representing the average data for every spot type"""
-
-    bin_array = np.array(avg_histogram_df.pop('bins'))
-    smooth_histo_df = avg_histogram_df.filter(regex='rollingmean').rename(columns=lambda x: x[:-12])
-    sdm_histo_df = avg_histogram_df.filter(regex='sdm').rename(columns=lambda x: x[:-4])
-    smooth_max = np.max(np.max(smooth_histo_df))
-    sdm_max = np.max(np.max(sdm_histo_df))
-    if np.isnan(sdm_max): sdm_max = 0
-    # histo_min = int(np.min(np.min(avg_histogram_df)))
-    histo_max = np.round(smooth_max+sdm_max,2)
-
-    y_grid = np.round(histo_max / 10,2)
-    if pass_counter < 10: passes_to_show = 1
-    else: passes_to_show = pass_counter // 10
-    line_settings = dict(lw=2 ,alpha=0.75)
-    for i in range(2, pass_counter+1, passes_to_show):
-        sns.set(style='ticks')
-        c = 0
-        for j, col in enumerate(smooth_histo_df):
-            splitcol = col.split("_")
-            if len(splitcol) == 2:
-                spot_type, pass_num = splitcol
-            else:
-                spot_type, pass_num = splitcol[::2]
-            pass_num = int(pass_num)
-            if pass_num == i:
-                plt.errorbar(bin_array,
-                         smooth_histo_df[col],
-                         yerr=sdm_histo_df[col],
-                         color = vhf_colormap[c],
-                         label = spot_type,
-                         elinewidth = 0.5,
-                         **line_settings
-                )
-                c += 1
-
-        plt.title(chip_name+" Pass "+str(i)+" Average Histograms")
-        plt.axhline(y=0, ls='dotted', c='k', alpha=0.75)
-        plt.axvline(x=min_cont, ls='dashed',c='k',alpha=0.8)
-
-        if len(mAb_dict_rev.keys()) <= 8: plt.legend(loc = 'best', fontsize = 14)
-        else: plt.legend(loc = 'best', fontsize = 8)
-
-        plt.ylabel("Frequency (kparticles/mm" + r'$^2$'+")", size = 14)
-
-        plt.yticks(np.arange(0, histo_max, y_grid), size = 12)
-        plt.xlabel("Contrast (%)", size = 14)
-
-        xgrid = len(bin_array) // 10
-        xlabels = np.append(bin_array, max_cont)[::xgrid]
-        plt.xticks(xlabels, size = 12, rotation = 90)
-
-
-
-        figname = ('{}_combohisto_pass_{}_contrast_{}.png'.format(chip_name,i,cont_str))
-        plt.savefig('{}/{}'.format(histo_dir,figname), bbox_inches = 'tight')#, dpi = 150)
-        print("File generated: {}".format(figname))
-        plt.clf()
-
-
 normalized_density = vquant.density_normalizer(spot_df, spot_counter)
 
 spot_df['normalized_density'] = normalized_density
-
 
 averaged_df = vgraph.average_spot_data(spot_df, pass_counter)
 
 if pass_counter > 2:
     vgraph.generate_timeseries(spot_df, averaged_df, cont_window, mAb_dict,
-                                chip_name, sample_name, vhf_colormap, version,
+                                chip_name, sample_name, version,
                                 scan_or_time = timeseries_mode, baseline = True,
                                 savedir = virago_dir
     )
 elif pass_counter <= 2:
     vgraph.generate_barplot(spot_df, pass_counter, cont_window,
-                            chip_name, sample_name, vhf_colormap, version,
+                            chip_name, sample_name, version,
                             plot_3sigma=True, savedir=virago_dir
     )
 
-vgraph.chipArray_graph(spot_df, vhf_colormap,
-                      chip_name=chip_name, sample_name=sample_name, cont_str=cont_str,
-                      exo_toggle=exo_toggle, savedir=virago_dir, version=version
+vgraph.chipArray_graph(spot_df,
+                       chip_name=chip_name, sample_name=sample_name, cont_str=cont_str,
+                       exo_toggle=exo_toggle, savedir=virago_dir, version=version
 )
 
 spot_df_name='{}/{}_spot_data.{}contrast.v{}.csv'.format(virago_dir, chip_name,
