@@ -196,7 +196,7 @@ def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict,vcount_dir):
                          'focal_plane'     : 'N/A',
                          'spot_coords_xyr' : 'N/A',
                          'marker_coords_RC': 'N/A',
-                         'valid'           : False,
+                         'validity'        : False,
                          'VIRAGO_version'  : 'N/A'
     }
 
