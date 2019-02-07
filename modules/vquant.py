@@ -65,8 +65,7 @@ def vdata_reader(vdata_list):
 
     vdata_df = vdata_df.applymap(lambda x: x.strip(' \n'))
     vdata_df.columns = props
-    vdata_df.validity = vdata_df.validity.astype('bool')
-
+    vdata_df['validity'] = vdata_df['validity'].apply(lambda x: eval(x))
 
     return vdata_df
 #
