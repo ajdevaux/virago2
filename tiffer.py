@@ -11,7 +11,7 @@ def main():
         chdir(iris_path)
         pgm_list = sorted(glob('*.pgm'))
 
-    tiff_list = tiff_maker(pgm_list, tiff_compression = 1, archive = True)
+    tiff_list = tiff_maker(pgm_list, tiff_compression = 1, archive = False)
 
     print(tiff_list)
 

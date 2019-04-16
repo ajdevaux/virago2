@@ -25,20 +25,15 @@ def fluor_cleaner(pgm_list, splitter ='/', fluor_clean_toggle = 'no'):
 
     return pgm_list
 #***********************************************************************************************#
-def nV_deleted(file_list, delete_toggle = 'no'):
-    if file_list:
-        print("\nNanoanalysis files detected: {}\n".format(file_list))
-        delete_toggle = input("Remove Nanoanalysis files? (y/[n])")
-        if delete_toggle in ('yes','y'):
-            delete_list = []
-            for file in file_list:
-                print(file)
-                delete_list.append(file)
-                # csv_list.remove(file)
-            print(delete_list)
-            for file in delete_list:
-                os.remove(file)
-                print("Deleted {}\n".format(file))
+def file_deleter(file_list, delete_toggle = 'no'):
+    print(file_list)
+    delete_toggle = input("Remove files? (y/[n])")
+    if delete_toggle in ('yes','y'):
+        delete_list = file_list.copy()
+
+        for file in delete_list:
+            os.remove(file)
+            print("Deleted {}\n".format(file))
 #***********************************************************************************************#
 def txt_combiner(txt_list, splitter):
     # if sys.platform == 'win32': splitter = ('\\')
@@ -148,21 +143,23 @@ for xfile in xml_list:
         elif file.endswith('.tif'):
             tiff_list.append(file)
             print("TIFF images detected")
-            
+
     if pgm_list != []:
         fluor_files = [file for file in pgm_list if file.split(".")[-2] in 'ABC']
-        print("Fluorescent images detected")
-        pgm_list = fluor_cleaner(pgm_list, splitter)
+        if fluor_files != []:
+            print("Fluorescent images detected")
+            pgm_list = fluor_cleaner(pgm_list, splitter)
         total_spots = max([int(val.split('.')[1]) for val in pgm_list])
-        nV_deleted(csv_list)
-        nV_deleted(png_list)
+        if csv_list:
+            print("\nNanoanalysis files detected: {}\n".format(csv_list))
+            file_deleter(csv_list)
+        if png_list:
+            print("\nNanoanalysis files detected: {}\n".format(png_list))
+            file_deleter(png_list)
 
-    # if (tiff_list == []) & (pgm_list != []):
-    #     print("Converting TIFFs")
-    #     img_list = tiff_maker(pgm_list, archive = False)
         if (len(tiff_list) != total_spots):
             print("Converting TIFFs")
-            img_list = tiff_maker(pgm_list, archive = False)
+            img_list = tiff_maker(pgm_list, archive = True)
         else:
             img_list = tiff_list
 
@@ -181,7 +178,6 @@ for xfile in xml_list:
                         os.remove('../' + txtfile)
                 os.chdir(iris_path)
 
-                #     os.remove(mirror_file)
                 print(iris_data_list)
                 for filename in iris_data_list:
                     filesplit = filename.split('.')
@@ -189,8 +185,7 @@ for xfile in xml_list:
                         filesplit[2] = new_str
                         newname = '.'.join(filesplit)
                         print(newname)
-                        dest = '{}{}{}'.format(folder_name, #splitter+'test'+
-                                               splitter, newname)
+                        dest = '{}{}{}'.format(folder_name, splitter, newname)
                         os.rename(filename, dest)
             else:
                 os.makedirs(folder_name)

@@ -1,16 +1,20 @@
 from __future__ import division
 from future.builtins import input
 from scipy.ndimage.filters import gaussian_filter
+# from scipy.ndimage.morphology import binary_dilation
 from scipy.spatial.distance import pdist, squareform
 
 from scipy.sparse import csr_matrix, csgraph
 from skimage import img_as_float
+from skimage.filters import sobel_h, sobel_v
 from skimage.feature import peak_local_max
+from skimage.morphology import medial_axis, skeletonize
+from skimage.measure import label, regionprops, perimeter
 import pandas as pd
 import numpy as np
 import itertools as itt
-import math, warnings, re, os
-from modules import vpipes
+import math, warnings, re, os, glob
+from modules import vpipes,vimage
 #*********************************************************************************************#
 #
 #           SUBROUTINES
@@ -19,20 +23,131 @@ from modules import vpipes
 def psf_sine(x,a,b,c):
     return a * np.sin(b * x + c)
 #*********************************************************************************************#
+def _multistep_z(z,zero_pt):
+    """
+    Helper function to fix the inconsistent steps the stage makes when acquiring images
+    for certain experiments
+    """
+    if z < zero_pt: return z
+    else: return z+z-zero_pt
+
+#*********************************************************************************************#
+def eccentricity(mu):
+    """Measures the eccentricity of a binary object when given the central moments *mu* of that object"""
+    mu02 = mu[0,2]
+    mu20 = mu[2,0]
+
+    A = (mu20 - mu02)**2
+    B = 4*(mu[1,1]**2)
+    C = (mu20 + mu02)**2
+
+    return abs((A - B) / C)
+#*********************************************************************************************#
+def bbox_verts(bbox):
+    bbox0 = bbox[0] - 2
+    bbox1 = bbox[1] - 2
+    bbox2 = bbox[2] + 2
+    bbox3 = bbox[3] + 2
+
+    return np.array([(bbox0,bbox1),(bbox0, bbox3),(bbox2, bbox3),(bbox2, bbox1)])
+#*********************************************************************************************#
+def measure_focal_plane(pic3D_norm, marker_locs, exo_toggle, marker_shape):
+    """
+    Uses the markers in the 3D image to determine the best image in the z stack to collect data from
+    based on the defocus curve
+    """
+    marker_h, marker_w =  marker_shape
+    hmarker_h = marker_h // 2
+    hmarker_w = marker_w // 2
+    pos_plane_list = []
+    if exo_toggle == True:
+
+        for loc in marker_locs:
+
+            if (loc[0] < hmarker_h) or (loc[1] < hmarker_w):
+                pass
+
+            else:
+                marker3D_img = pic3D_norm[:,
+                                          loc[0]-hmarker_h : loc[0]+hmarker_h,
+                                          loc[1]-hmarker_w : loc[1]+hmarker_w
+                ]
+
+                teng_vals = [np.mean(sobel_h(img)**2 + sobel_v(img)**2) for img in marker3D_img]
+                min_plane = teng_vals.index(min(teng_vals))
+                pos_vals = teng_vals[:min_plane]
+                if not pos_vals == []:
+
+                    pos_plane_list.append(teng_vals.index(max(pos_vals)))
+
+                # neg_vals = teng_vals[min_plane:]
+                # neg_vals_diff = list(np.diff(neg_vals))
+                # neg_plane_list = [neg_vals_diff.index(val) for val in neg_vals_diff if val < 0]
+
+    return pos_plane_list
+#*********************************************************************************************#
 def classify_shape(shapedex, pic2D, shape, delta, intensity, operator = 'greater'):
     with warnings.catch_warnings():
         ##RuntimeWarning ignored: invalid values are expected
         warnings.simplefilter("ignore")
         warnings.warn(RuntimeWarning)
         if operator == 'greater':
-            shape_y, shape_x = np.where((np.abs(shapedex - shape) <= delta)
-                                        & (pic2D >= intensity)
-            )
+            shape_y, shape_x = np.where((np.abs(shapedex - shape) <= delta) & (pic2D >= intensity))
         else:
-            shape_y, shape_x = np.where((np.abs(shapedex - shape) <= delta)
-                                        & (pic2D <= intensity)
-            )
+            shape_y, shape_x = np.where((np.abs(shapedex - shape) <= delta) & (pic2D <= intensity))
     return list(zip(shape_y, shape_x))
+#*********************************************************************************************#
+def binary_data_extraction(pic_binary, intensity_img, prop_list, pix_range):
+
+    binary_props = regionprops(label(pic_binary, connectivity=2), intensity_img,
+                             coordinates='xy', cache=True
+    )
+
+    # with warnings.catch_warnings():
+    #     ##UserWarning ignored
+    #     warnings.simplefilter("ignore")
+    #     warnings.warn(UserWarning)
+    #     shape_df = pd.DataFrame([[region['label'],
+    #                               #[tuple(coords) for coords in region['coords']],
+    #                               region['coords'],
+    #                               region['moments'],
+    #                               region['moments_central'],
+    #                               region['moments_normalized'],
+    #                               region['bbox'],
+    #
+    #
+    #                               # region['centroid'],
+    #
+    #                               # region['area'],
+    #                               region['perimeter'],
+    #                               region['convex_image'],
+    #                               region['major_axis_length'],
+    #                               region['minor_axis_length']]
+    #                               for region in binary_props
+    #                               if (region['area'] > pix_range[0]) & (region['area'] <= pix_range[1])],
+    #                               columns=['label','coords','moments','moments_central','moments_normalized','bbox',
+    #                                        'perimeter','convex_image','major_axis_length','minor_axis_length']
+    #     )
+
+    shape_df = pd.DataFrame([[region[prop] for prop in prop_list] for region in binary_props
+                              if (region['area'] > pix_range[0]) & (region['area'] <= pix_range[1])],
+                              columns=prop_list
+    )
+
+
+
+
+
+
+
+    return shape_df
+#*********************************************************************************************#
+def particle_masker(pic_binary, shape_df, pass_num, first_scan = 1):
+    particle_mask = np.zeros_like(pic_binary, dtype=int)
+    rows, cols = zip(*[item for sublist in shape_df.coords.tolist() for item in sublist])
+    particle_mask[rows,cols] = 1
+
+    return particle_mask
 #*********************************************************************************************#
 def density_normalizer(spot_df, spot_counter):
     """Particle count normalizer so pass 1 = 0 particle density"""
@@ -40,9 +155,11 @@ def density_normalizer(spot_df, spot_counter):
     for x in range(1, spot_counter + 1):
         kp_df = spot_df.kparticle_density[(spot_df.spot_number == x)].reset_index(drop=True)
         j = 0
+
         while np.isnan(kp_df[j]):
+            print(kp_df)
             j += 1
-            if j == len(kp_df) - 1:
+            if (j == len(kp_df) - 1):
                 norm_val = [np.nan] * j
                 break
             print("Invalid data for spot {}, scan {}; normalizing to scan {}".format(x,j,j+1))
@@ -62,63 +179,53 @@ def vdata_reader(vdata_list):
             props, vals= zip(*[line.split(':') for line in vdf])
 
             vdata_df = vdata_df.append([vals], ignore_index=True)
-
-    vdata_df = vdata_df.applymap(lambda x: x.strip(' \n'))
     vdata_df.columns = props
+    vdata_df = vdata_df.applymap(lambda x: x.strip(' \n'))
+
     vdata_df['validity'] = vdata_df['validity'].apply(lambda x: eval(x))
 
     return vdata_df
-#
-#
-#
-#              = [line.split(':')[0] for line in vdf]
-#                 value = value.strip(' \n')
-#                 vdata_dict.update({prop: value})
-#                 vdata_df[prop] = value
-#
-# )
-#
-#
-#
-#
-#                 if (prop == 'marker_coords_RC') | (prop == 'marker_locs'):
-#
-#                     coords_list = list(map(int,re.findall('\d+', value)))
-#
-#                     vdata_dict.update({prop: [tuple(coords_list[i:i+2])
-#                                               for i in range(0, len(coords_list), 2)
-#                                               if not coords_list == []
-#                                               ]
-#                     })
-#
-#                 elif (prop == 'valid') | (prop == 'validity'):
-#                     if not value == 'True': value = False
-#                     vdata_dict.update({prop: bool(value)})
-#                 elif prop in prop_list:
-#                     vdata_dict.update({prop: value})
-#                 else:
-# #                     pass
-#
-#     return vdata_dict
+
 #*********************************************************************************************#
-# def shape_factor_reciprocal(area_list, perim_list):
-#     """
-#     (Perimeter^2) / 4 * PI * Area).
-#     This gives the reciprocal value of Shape Factor for those that are used to using it.
-#     A circle will have a value slightly greater than or equal to 1.
-#     Other shapes will increase in value.
-#     """
-#     circ_ratio = 4 * np.pi
-#     return [(P**2)/(circ_ratio * A) for A,P in zip(area_list,perim_list)]
-#     return roundness
+def _pixel_graph_easy(image, steps, distances, num_edges, height=None):
+    row = np.empty(num_edges, dtype=int)
+    col = np.empty(num_edges, dtype=int)
+    data = np.empty(num_edges, dtype=float)
+    image = image.ravel()
+    n_neighbors = steps.size
+    start_idx = np.max(steps)
+    end_idx = image.size + np.min(steps)
+    k = 0
+    for i in range(start_idx, end_idx + 1):
+        if image[i] != 0:
+            for j in range(n_neighbors):
+                n = steps[j] + i
+                if image[n] != 0 and image[n] != image[i]:
+                    row[k] = image[i]
+                    col[k] = image[n]
+                    if height is None:
+                        data[k] = distances[j]
+
+                    else:
+                        data[k] = np.sqrt(distances[j] ** 2 + (height[i] - height[n]) ** 2)
+                    k += 1
+
+    graph = sparse.coo_matrix((data[:k], (row[:k], col[:k]))).tocsr()
+
+    return graph
 #*********************************************************************************************#
 def measure_filo_length(coords, pix_per_um):
     sparse_matrix = csr_matrix(squareform(pdist(coords,metric='euclidean')))
-    distances     = csgraph.shortest_path(sparse_matrix,method = 'FW',return_predecessors=False)
-    ls_path       = np.max(distances)
-    farpoints     = np.where(distances == ls_path)
-    filo_len      = float(round(ls_path / pix_per_um, 3))
-    vertices      = [coords[farpoints[0][0]],coords[farpoints[0][len(farpoints[0]) // 2]]]
+    # vimage.gen_img(sparse_matrix)
+
+    distances = csgraph.shortest_path(sparse_matrix,method = 'FW',return_predecessors=False)
+
+    ls_path = np.max(distances)
+
+    farpoints = np.where(distances == ls_path)
+
+    filo_len = float(round(ls_path / pix_per_um, 3))
+    vertices = [coords[farpoints[0][0]],coords[farpoints[0][len(farpoints[0]) // 2]]]
 
     return filo_len, vertices
 #*********************************************************************************************#
@@ -128,7 +235,12 @@ def measure_defocus(z_stack, std_z_stack, measure_corr=True,
     Measures through the z stack and collects intensity data
     """
 
-    x_data = np.arange(0,len(z_stack))
+    zstack_len = len(z_stack)
+    x_data = np.arange(1,zstack_len+1)
+
+    if zstack_len <= 10:
+        vzfunc = np.vectorize(_multistep_z)
+        x_data = vzfunc(x_data, 7)
 
     maxa, mina = max(z_stack), min(z_stack)
     max_z = z_stack.index(maxa)
@@ -182,8 +294,6 @@ def get_bbox_pixels(bbox, max_z_img):
 
     lft_col = bbox[0][1]
     rgt_col = bbox[2][1]
-
-    # particle_image = max_z_img[top_row:bot_row+1,lft_col:rgt_col+1]
 
     top_bot = max_z_img[[top_row, bot_row], lft_col:rgt_col+1]
 
@@ -256,7 +366,7 @@ def _intersection_of_smaller(bb1, bb2):
 #*********************************************************************************************#
 def mark_overlaps(neighbor_tree_dist, shape_df):
     pc_series = shape_df.perc_contrast
-    bbox_series = shape_df.bbox_verts
+    bbox_series = shape_df.bbox
 
     overlap_ix_list = []
 
@@ -276,48 +386,50 @@ def mark_overlaps(neighbor_tree_dist, shape_df):
 
     return overlap_ix_list
 #*********************************************************************************************#
-def spot_remover(spot_df, particle_dict, vdata_list, vcount_dir, iris_path, quarantine_img = False):
+def spot_remover(spot_df, contrast_df, vcount_dir, iris_path, quarantine_img = False):
     excise_toggle = input("Would you like to remove any spots from the analysis? (y/[n])\t")
     assert isinstance(excise_toggle, str)
     if excise_toggle.lower() in ('y','yes'):
         excise_spots = input("Which spots? (Separate all spot numbers by a comma)\t")
-        excise_spots = excise_spots.split(",")
-        for ex_spot in excise_spots:
-            spot_df.loc[spot_df.spot_number == int(ex_spot), 'validity'] = False
+        excise_spots = [int(x) for x in excise_spots.split(',')]
 
-            for key in particle_dict.keys():
-                spot_num_dict = int(key.split(".")[0])
-                if spot_num_dict == int(ex_spot):
-                    particle_dict[key] = 0
+        spot_df.loc[spot_df.spot_number.isin(excise_spots), 'validity'] = False
 
-            os.chdir(vcount_dir)
-            for vfile in vdata_list:
-                spot_num_vfile = int(vfile.split('.')[1])
-                if spot_num_vfile == int(ex_spot):
-                    print(vfile)
-                    old_vfile = vfile+'~'
-                    os.rename(vfile, old_vfile)
+        drop_col_list = [col for col in contrast_df.columns if int(col.split(".")[0]) in excise_spots]
+        contrast_df.drop(columns=drop_col_list, inplace=True)
 
-                    with open(old_vfile, 'r+') as vf_old, open(vfile, 'w') as vf_new:
-                        lines = vf_old.readlines()
-                        # print(lines)
-                        for line in lines:
-                            if line.split(':')[0] == 'validity':
-                                # print(line)
-                                newline = 'validity: False\n'
-                                vf_new.write(newline)
+        os.chdir(vcount_dir)
 
-                            else:
-                                vf_new.write(line)
-                    os.remove(old_vfile)
+        vdata_list = glob.glob('*.vdata.txt')
+        bad_vfiles = [vf for vf in vdata_list if int(vf.split('.')[1]) in excise_spots]
+        print(bad_vfiles)
+        for vf in bad_vfiles:
+            old_vf = vf+'~'
+            os.rename(vf, old_vf)
+            with open(old_vf, 'r+') as ovf, open(vf, 'w') as nvf:
+                lines = ovf.readlines()
+                # print(lines)
+                for line in lines:
+                    if line.split(':')[0] == 'validity':
+                        # print(line)
+                        nvf.write('validity: False\n')
 
-            if quarantine_img == True:
-                os.chdir(iris_path)
-                if not os.path.exists('bad_imgs'): os.makedirs('bad_imgs')
-                bad_pgms = sorted(glob.glob('*.'+vpipes.three_digs(ex_spot)+'.*.*.pgm'))
-                for pgm in bad_pgms:
-                    os.rename(pgm, "{}/bad_imgs/{}".format(iris_path, pgm))
+                    else:
+                        nvf.write(line)
+            os.remove(old_vf)
+
+        if quarantine_img == True:
+            os.chdir(iris_path)
+            if not os.path.exists('bad_imgs'):
+                os.makedirs('bad_imgs')
+
+            bad_imgs = [img for sublist in
+                       [glob.glob('*.'+vpipes.three_digs(spot)+'.*.tif') for spot in excise_spots]
+                       for img in sublist
+            ]
+            for img in bad_imgs:
+                os.rename(img, "{}/bad_imgs/{}".format(iris_path, img))
 
 
-    return spot_df, particle_dict
+    return spot_df, contrast_df
 #*********************************************************************************************#

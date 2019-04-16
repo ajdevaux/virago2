@@ -44,8 +44,10 @@ def chipFile_reader(chipFile, remove_jargon = True):
                    '8G5': r'$\alpha$'+'-VSV', '4F3': r'$\alpha$'+'-EBOV',
                    '13C6': r'$\alpha$'+'-EBOV', '40-3': r'$\alpha$'+'-IAV-H3Nx',
                    'PA1-7221': r'$\alpha$'+'-H1N1',  'PA1-7222': r'$\alpha$'+'-H3N2',
-                   'MOUSE ISOTYPE CONTROL': 'muIgG', 'CD81': r'$\alpha$'+'-CD81',
-                   'CD63': r'$\alpha$'+'-CD63', 'CD9': r'$\alpha$'+'-CD9'
+                   'MOUSE': 'muIgG', 'CD81': r'$\alpha$'+'-CD81',
+                   'CD63': r'$\alpha$'+'-CD63', 'CD9': r'$\alpha$'+'-CD9',
+                   'CD41A': r'$\alpha$'+'-CD41A', 'GFP': r'$\alpha$'+'-GFP',
+                   'SAV': r'$\alpha$'+'-SAV'
                    }
     mAb_dict = {}
     for q, spot in enumerate(chipFile):
@@ -128,7 +130,7 @@ def sample_namer(iris_path):
 #             missing_filo_df = pd.DataFrame(columns = ['centroid_bin', 'label_skel',
 #                                                       'filament_length_um', 'roundness',
 #                                                       'pc', 'vertex1', 'vertex2',
-#                                                       'area', 'bbox_verts'])
+#                                                       'area', 'bbox'])
 #             missing_filo_df.to_csv('{}/{}.filocount.csv'.format(filo_dir,missing_scan))
 #         missing_vals = list([missing_scan, 'N/A', 0, 'N/A', 'N/A', 'N/A',
 #                             'N/A', 0, 'N/A', 'N/A', 'N/A', 'N/A', False])
@@ -140,8 +142,9 @@ def sample_namer(iris_path):
 #*********************************************************************************************#
 def mirror_finder(pgm_list):
     regex = re.compile('000\.000')
-    mirror_file = list(filter(regex.search, pgm_list))[0]
-    if mirror_file:
+    mirror_list = list(filter(regex.search, pgm_list))
+    if mirror_list != []:
+        mirror_file = mirror_list[0]
         pgm_list.remove(mirror_file)
         mirror = skio.imread(mirror_file)
         print("Mirror file detected\n")
@@ -178,32 +181,38 @@ def zipper(filename, filelist, compression='zip', iris_path=os.getcwd()):
         zf.write(file,compress_type=zMODE)
         print("{} added to {}.{}".format(file, filename, compression))
 #*********************************************************************************************#
-def bad_data_writer(chip_name, spot_to_scan, scan, marker_dict,vcount_dir):
-    spot_scan_str = '{}.{}'.format(spot_to_scan, scan)
-    marker_dict[spot_scan_str] = (0,0)
+def iris_txt_reader(iris_txt, mAb_dict, pass_counter):
+    spot_df = pd.DataFrame()
+    for ix, txtfile in enumerate(iris_txt):
+        spot_ix = ix+1
+        dict_vals = mAb_dict[spot_ix]
+        spot_data_solo = pd.DataFrame({'spot_number'   : [spot_ix] * pass_counter,
+                                       'scan_number'   : range(1,pass_counter + 1),
+                                       'spot_type'     : [dict_vals[0]] * pass_counter,
+                                       'chip_coords_xy': [dict_vals[1:3]] * pass_counter
+                                       }
+        )
+        if type(txtfile) is str:
+            txtdata = pd.read_table(txtfile, sep = ':', error_bad_lines = False,
+                                header = None, index_col = 0, usecols = [0, 1])
+            expt_date = txtdata.loc['experiment_start'][1].split(" ")[0]
 
-    scan_data = [chip_name, three_digs(spot_to_scan), three_digs(scan)]
 
-    bad_scan = '{0}.{1}.{2}'.format(*scan_data)
+            pass_labels = [row for row in txtdata.index if row.startswith('pass_time')]
+            times_s = txtdata.loc[pass_labels].values.flatten().astype('float')
+            pass_diff = pass_counter - len(pass_labels)
+            if pass_diff > 0:
+                times_s = np.append(times_s, [0] * pass_diff)
+            spot_data_solo['scan_time'] = np.round(times_s * 0.0167,2)
+            print('File scanned:  {}'.format(txtfile))
 
-    missing_vdata_dict= {'image_name'      : bad_scan,
-                         'spot_type'       : 'N/A',
-                         'area_sqmm'       : 0,
-                         'image_shift_RC'  : 'N/A',
-                         'overlay_mode'    : 'N/A',
-                         'total_particles' : 0,
-                         'exo_toggle'      : False,
-                         'focal_plane'     : 'N/A',
-                         'spot_coords_xyr' : 'N/A',
-                         'marker_coords_RC': 'N/A',
-                         'validity'        : False,
-                         'VIRAGO_version'  : 'N/A'
-    }
+        else:
+            print("Missing text file for spot {}\n".format(txtfile))
+            spot_data_solo['scan_time'] = [0] * pass_counter
+            expt_date = None
+        spot_df = spot_df.append(spot_data_solo, ignore_index = True)
 
-    with open('{}/{}.vdata.txt'.format(vcount_dir,bad_scan),'w') as f:
-        for k,v in missing_vdata_dict.items():
-            f.write('{}: {}\n'.format(k,v))
-    print("Writing blank data files for {}".format(bad_scan))
+    return spot_df, expt_date
 #*********************************************************************************************#
 def version_finder(version):
     major, minor, micro = re.search('(\d+)\.(\d+)\.(\d+)', version).groups()

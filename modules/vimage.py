@@ -20,8 +20,8 @@ def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png
     """A subroutine for debugging contrast adjustment"""
     bin_no = 150
     nrows, ncols = fig1.shape
-    figsize = (ncols/dpi/2, nrows/dpi/2)
-    fig = plt.figure(figsize = figsize, dpi = dpi)
+
+    fig = plt.figure(figsize = (ncols/dpi/2, nrows/dpi/2), dpi = dpi)
 
     ax_img = plt.Axes(fig,[0,0,1,1])
     ax_img.set_axis_off()
@@ -42,15 +42,11 @@ def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png
     ax_hist3 = plt.axes([.7, .05, .25, .25])
     ax_cdf3 = ax_hist3.twinx()
 
-    # hist1, hbins1 = np.histogram(fig1.ravel(), bins = bin_no)
-    # hist2, hbins2 = np.histogram(fig2.ravel(), bins = bin_no)
-    # hist3, hbins3 = np.histogram(fig3.ravel(), bins = bin_no)
     fig1r = fig1.ravel(); fig2r = fig2.ravel(); fig3r = fig3.ravel()
 
     hist1, hbins1, __ = ax_hist1.hist(fig1r, bin_no, facecolor = 'r', normed = True)
     hist2, hbins2, __ = ax_hist2.hist(fig2r, bin_no, facecolor = 'b', normed = True)
     hist3, hbins3, __ = ax_hist3.hist(fig3r, bin_no, facecolor = 'g', normed = True)
-    # hist_dist1 = scipy.stats.rv_histogram(hist1)
 
     ax_hist1.patch.set_alpha(0); ax_hist2.patch.set_alpha(0); ax_hist3.patch.set_alpha(0)
 
@@ -63,7 +59,7 @@ def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png
     pdf2 = norm.pdf(bin_centers2, m2, s2)
     ax_hist2.plot(bin_centers2, pdf2, color = 'm')
     mean, var, skew, kurt = gamma.stats(fig2r, moments='mvsk')
-    print(mean, var, skew, kurt)
+    # print(mean, var, skew, kurt)
 
     ax_hist1.set_title("Normalized", color = 'r')
     ax_hist2.set_title("CLAHE Equalized", color = 'b')
@@ -87,23 +83,107 @@ def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png
                     dpi = dpi)
     plt.show()
 
-    plt.close('all')
-    return hbins2, pic_cdf1
+    plt.close('all'); plt.clf()
+    # return hbins2, pic_cdf1
 #*********************************************************************************************#
-def gen_img(image, name = 'default', savedir = '', cmap = 'gray', dpi = 96, show = True, zoom_amt = 1):
-    print(zoom_amt)
-    nrows, ncols = image.shape[0], image.shape[1]
-    figsize = ((ncols/dpi), (nrows/dpi))
-    fig = plt.figure(figsize = figsize, dpi = dpi)
+def image_details2(fig1, save = False,  chip_name ='', png='', dpi = 96):
+    """A subroutine for debugging contrast adjustment"""
+    bin_no = 150
+    nrows, ncols = fig1.shape
+
+    fig = plt.figure(figsize = (ncols/dpi/2, nrows/dpi/2), dpi = dpi)
+
+    ax_img = plt.Axes(fig,[0,0,1,1])
+    ax_img.set_axis_off()
+    fig.add_axes(ax_img)
+
+    ax_img.imshow(fig1, cmap = 'gray')
+
+    pic_cdf1, cbins1 = cumulative_distribution(fig1, bin_no)
+    # pic_cdf2, cbins2 = cumulative_distribution(fig2, bin_no)
+    # pic_cdf3, cbins3 = cumulative_distribution(fig3, bin_no)
+
+    # ax_hist1 = plt.axes([.05, .05, .25, .25])
+    # ax_cdf1 = ax_hist1.twinx()
+    ax_hist2 = plt.axes([.375, .05, .25, .25])
+    ax_cdf2 = ax_hist2.twinx()
+    # ax_hist3 = plt.axes([.7, .05, .25, .25])
+    # ax_cdf3 = ax_hist3.twinx()
+
+    fig1 = fig1.ravel()
+    # ; fig2r = fig2.ravel(); fig3r = fig3.ravel()
+
+    hist1, hbins1, __ = ax_hist1.hist(fig1r, bin_no, facecolor = 'r', normed = True)
+    # hist2, hbins2, __ = ax_hist2.hist(fig2r, bin_no, facecolor = 'b', normed = True)
+    # hist3, hbins3, __ = ax_hist3.hist(fig3r, bin_no, facecolor = 'g', normed = True)
+
+    # ax_hist1.patch.set_alpha(0);
+    ax_hist2.patch.set_alpha(0);
+    # ax_hist3.patch.set_alpha(0)
+
+    ax_cdf1.plot(cbins1, pic_cdf1, color = 'w')
+    # ax_cdf2.plot(cbins2, pic_cdf2, color = 'c')
+    # ax_cdf3.plot(cbins3, pic_cdf3, color = 'y')
+
+    bin_centers = 0.5*(hbins1[1:] + hbins1[:-1])
+    m, s = norm.fit(fig1r)
+    pdf = norm.pdf(bin_centers, m, s)
+    ax_hist2.plot(bin_centers, pdf, color = 'm')
+    # mean, var, skew, kurt = gamma.stats(fig2r, moments='mvsk')
+    # print(mean, var, skew, kurt)
+
+    # ax_hist1.set_title("Normalized", color = 'r')
+    # ax_hist2.set_title("CLAHE Equalized", color = 'b')
+    # ax_hist3.set_title("Contrast Stretched", color = 'g')
+
+    # ax_hist1.set_ylim([0,max(hist1)])
+    ax_hist2.set_ylim([0,max(hist1)])
+    # ax_hist3.set_ylim([0,max(hist3)])
+
+    ax_hist2.set_xlim([np.median(fig1)-0.1,np.median(fig1)+0.1])
+    # ax_hist2.set_xlim([np.median(fig2)-0.1,np.median(fig2)+0.1])
+    # ax_hist3.set_xlim([0,1])
+    #ax_cdf1.set_ylim([0,1])
+
+    ax_hist2.tick_params(labelcolor='tab:orange')
+
+    if save == True:
+        plt.savefig('../virago_output/' + chip_name
+                    + '/processed_images/' + png
+                    + '_image_details.png',
+                    dpi = dpi)
+    plt.show()
+
+    plt.close('all'); plt.clf()
+#*********************************************************************************************#
+def _gen_img_fig(img, dpi = 96):
+
+    nrows, ncols = img.shape[0], img.shape[1]
+    fig = plt.figure(figsize=(ncols/dpi, nrows/dpi), dpi=dpi)
     axes = plt.Axes(fig,[0,0,1,1])
     fig.add_axes(axes)
     axes.set_axis_off()
-    axes.imshow(image, cmap = cmap)
+    axes.imshow(img, cmap=plt.cm.gray)
+
+    return fig, axes
+#*********************************************************************************************#
+def gen_img(image, name = 'default', savedir = '', dpi = 96, show = True):
+    # nrows, ncols = image.shape[0], image.shape[1]
+    # figsize = ((ncols/dpi), (nrows/dpi))
+    # fig = plt.figure(figsize = figsize, dpi = dpi)
+    # axes = plt.Axes(fig,[0,0,1,1])
+    # fig.add_axes(axes)
+    # axes.set_axis_off()
+    # axes.imshow(image, cmap = cmap)
+
+    _gen_img_fig(image)
+    if show == True:
+        plt.show()
 
     if savedir:
         plt.savefig('{}/{}.png'.format(savedir, name), dpi = dpi)
         print("\nFile generated: {}.png\n".format(name))
-    if show == True: plt.show()
+
     plt.close('all')
 #*********************************************************************************************#
 def gen_img3D(im3D, cmap = "gray", step = 1):
@@ -130,6 +210,8 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
         warnings.simplefilter("ignore")
         warnings.warn(FutureWarning)##Numpy FFT Warning. This is Scikit-Image's problem
         if marker.ndim == 2:
+            print('2')
+
             h, w = marker.shape
             locs = peak_local_max(match_template(image, marker, pad_input = True),
                                   min_distance = 775,
@@ -139,9 +221,11 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
             )
 
         elif marker.ndim == 3:
+            print('3')
+
             z, h, w = marker.shape
             locs = [peak_local_max(match_template(image, m, pad_input = True),
-                                                  threshold_rel = thresh,
+                                                  threshold_rel = thresh - 0.2,
                                                   exclude_border = False,
                                                   num_peaks = 1
                                     ).flatten() for m in marker
@@ -149,7 +233,7 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
 
     locs = list(map(lambda x: tuple(x), locs))
     locs.sort(key = lambda coord: coord[1])
-
+    print(locs)
     if gen_mask == True:
         mask = np.zeros(shape = image.shape, dtype = bool)
 
@@ -275,7 +359,6 @@ def _dict_matcher(_dict, spot_num, pass_num, mode = 'series'):
     elif mode == 'series':
         prev_pass = pass_num - 1
 
-
     for key in _dict.keys():
         key0, key1 = map(lambda x: int(x), key.split('.'))
         if (key0 == spot_num) & (key1 == prev_pass):
@@ -319,8 +402,43 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
 
     return tuple(mean_shift), overlay_toggle
 #*********************************************************************************************#
-def overlayer(overlay_dict, overlay_toggle, spot_num, pass_num,
-              mean_shift, mode ='baseline'):
+def overlayer(overlay_dict, spot_num, pass_num, mean_shift, mode ='baseline'):
+
+    vshift, hshift = mean_shift
+    vshift = int(math.ceil(vshift))
+    hshift = int(math.ceil(hshift))
+
+    bot_img, top_img = _dict_matcher(overlay_dict, spot_num, pass_num, mode=mode)
+
+    nrows, ncols = bot_img.shape
+
+    try: bot_img
+    except NameError: print("Cannot overlay images")
+    else:
+        if vshift < 0:
+            vshift = abs(vshift)
+            bot_img = np.delete(bot_img, np.s_[0:vshift], axis = 0)
+            bot_img = np.append(bot_img, np.zeros((vshift,ncols)), axis=0)
+            # top_img = np.delete(top_img, np.s_[-vshift:], axis = 0)
+        elif vshift > 0:
+            bot_img = np.delete(bot_img, np.s_[-vshift:], axis = 0)
+            bot_img = np.insert(bot_img, 0, np.zeros((vshift,ncols)), axis = 0)
+            # top_img = np.delete(top_img, np.s_[0:vshift], axis = 0)
+
+        if hshift < 0:
+            hshift = abs(hshift)
+            bot_img = np.delete(bot_img, np.s_[0:hshift], axis = 1)
+            bot_img = np.append(bot_img, np.zeros((nrows,hshift)), axis=1)
+            # top_img = np.delete(top_img, np.s_[-abs(hshift):], axis = 1)
+        elif hshift > 0:
+            bot_img = np.delete(bot_img, np.s_[-hshift:], axis = 1)
+            bot_img = np.insert(bot_img, [0], np.zeros((nrows,hshift)), axis=1)
+            # top_img = np.delete(top_img, np.s_[0:abs(hshift)], axis = 1)
+
+        return np.dstack((bot_img, top_img, np.zeros_like(bot_img)))
+
+#*********************************************************************************************#
+def prescan_subtractor(overlay_dict, overlay_toggle, spot_num, pass_num, mean_shift, mode ='baseline'):
     vshift = int(np.ceil(mean_shift[0]))
     hshift = int(np.ceil(mean_shift[1]))
     if (pass_num > 1) & (overlay_toggle == True):
@@ -342,8 +460,8 @@ def overlayer(overlay_dict, overlay_toggle, spot_num, pass_num,
                 bot_img = np.delete(bot_img, np.s_[-abs(hshift):], axis = 1)
                 top_img = np.delete(top_img, np.s_[0:abs(hshift)], axis = 1)
 
-            image_overlay = np.dstack((bot_img, top_img, np.zeros_like(bot_img)))
-            # image_overlay = top_img - bot_img
+            prescan_subtraction = top_img - bot_img
+
             return image_overlay
 
     elif pass_num == 1:
@@ -381,7 +499,7 @@ def cropper(pic, coords, img_dir, crop_pix = 150, zoom_amt = 1):
                             savedir = img_dir
             )
 #*********************************************************************************************#
-def particle_mask_shift(particle_mask, mean_shift):
+def shape_mask_shift(shape_mask, mean_shift):
     """
     Shifts the before-and-after images so that old particles will be masked and not counted in
     the new image
@@ -390,18 +508,18 @@ def particle_mask_shift(particle_mask, mean_shift):
     hshift = int(np.ceil(mean_shift[1]))
 
     if vshift > 0:
-        particle_mask = np.delete(particle_mask, np.s_[-abs(vshift):], axis = 0)
-        particle_mask = np.insert(particle_mask, np.s_[0:abs(vshift)], False, axis = 0)
+        shape_mask = np.delete(shape_mask, np.s_[-abs(vshift):], axis = 0)
+        shape_mask = np.insert(shape_mask, np.s_[0:abs(vshift)], False, axis = 0)
     elif vshift < 0:
-        particle_mask = np.delete(particle_mask, np.s_[0:abs(vshift)], axis = 0)
-        particle_mask = np.insert(particle_mask, np.s_[-abs(vshift):], False, axis = 0)
+        shape_mask = np.delete(shape_mask, np.s_[0:abs(vshift)], axis = 0)
+        shape_mask = np.insert(shape_mask, np.s_[-abs(vshift):], False, axis = 0)
 
     if hshift > 0:
-        particle_mask = np.delete(particle_mask, np.s_[-abs(hshift):], axis = 1)
-        particle_mask = np.insert(particle_mask, np.s_[0:abs(hshift)], False, axis = 1)
+        shape_mask = np.delete(shape_mask, np.s_[-abs(hshift):], axis = 1)
+        shape_mask = np.insert(shape_mask, np.s_[0:abs(hshift)], False, axis = 1)
     elif hshift < 0:
-        particle_mask = np.delete(particle_mask, np.s_[0:abs(hshift)], axis = 1)
-        particle_mask = np.insert(particle_mask, np.s_[-abs(hshift):], False, axis = 1)
+        shape_mask = np.delete(shape_mask, np.s_[0:abs(hshift)], axis = 1)
+        shape_mask = np.insert(shape_mask, np.s_[-abs(hshift):], False, axis = 1)
 
-    return particle_mask
+    return shape_mask
 #*********************************************************************************************#
