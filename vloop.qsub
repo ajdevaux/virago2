@@ -1,0 +1,27 @@
+#!/bin/bash -l
+
+#$ -P connor-iris
+#$ -N vloop_results
+#$ -j y
+#$ -m bae
+
+
+echo "8============================================)~~"
+echo "Starting on: $(date)"
+echo "Running on node: $(hostname)"
+echo "Current directory: $(pwd)"
+echo "Current job ID: $JOB_ID"
+echo "Current job name: $JOB_NAME"
+echo "8============================================)~~"
+#Load modules
+module load python3/3.7.3
+
+if [[ ${#SGE_TASK_ID} == 1 ]]
+    then
+        ls *.00$SGE_TASK_ID.???.tif *000.pgm | python3 ~/virago/vloop-scc.py
+
+    else
+        ls *.0$SGE_TASK_ID.???.tif *000.pgm | python3 ~/virago/vloop-scc.py
+fi
+
+# ls *.001.???.tif *000.pgm | python3 ~/virago/vloop.py

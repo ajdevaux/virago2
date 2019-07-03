@@ -1,0 +1,38 @@
+#!/bin/bash -l
+
+#$ -P connor-iris
+#$ -N virago_output
+#$ -j y
+#$ -m bae
+#$ -t 1-5
+
+
+echo "8============================================)~~"
+echo "Starting on: $(date)"
+echo "Running on node: $(hostname)"
+echo "Current directory: $(pwd)"
+echo "Current job ID: $JOB_ID"
+echo "Current job name: $JOB_NAME"
+echo "8============================================)~~"
+#Load modules
+module load python3/3.7.3
+
+cd /projectnb/connor-iris/amCHIP001
+
+
+# for i in $(seq 1 $END)
+#     do echo $i
+# done
+#
+# for file in amCHIP005/*
+#     do
+#         echo "$(basename "$file")" | python3 ~/virago/simple.py
+# done
+#
+#
+# echo "Finished on: $(date)"
+# for i in $(seq 1 $END)
+#     do ls *00$i.tif | python3 ~/virago/bash_tiffer.py
+# done
+
+ls *.00$SGE_TASK_ID.???.pgm | python3 ~/virago/bash_tiffer.py
