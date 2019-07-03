@@ -116,8 +116,10 @@ if iris_path == 'test':
 iris_path = iris_path.strip('"')##Point to the correct directory
 os.chdir(iris_path)
 
-if sys.platform == 'win32': splitter = ('\\')
-elif sys.platform == 'darwin': splitter = ('/')
+splitter = os.sep
+#
+# if sys.platform == 'win32': splitter = ('\\')
+# elif sys.platform == 'darwin' | 'linux': splitter = ('/')
 
 xml_list = [file for file in sorted(glob.glob('*/*.xml'))]
 if not xml_list: xml_list = [file for file in sorted(glob.glob('../*/*.xml'))]
@@ -159,7 +161,7 @@ for xfile in xml_list:
 
         if (len(tiff_list) != total_spots):
             print("Converting TIFFs")
-            img_list = tiff_maker(pgm_list, archive = True)
+            img_list = tiff_maker(pgm_list, archive = False)
         else:
             img_list = tiff_list
 
@@ -194,7 +196,20 @@ for xfile in xml_list:
 
             mirror_file = str(glob.glob(folder_name+'.000.000.pgm')).strip("'[]'")
             final_mirror_loc = '{}{}{}'.format(folder_name, splitter, mirror_file)
-            if not os.path.isfile(final_mirror_loc):
+
+            if mirror_file == '':
+                pass
+            elif not os.path.isfile(final_mirror_loc):
                 os.rename(mirror_file, final_mirror_loc)
             else:
                 os.remove(mirror_file)
+
+def iris_renamer(newchip):
+    iris_path = input("\nPlease type in the path to the folder that contains the IRIS data to rename:\n")
+    os.chdir(iris_path)
+    l=sorted(glob.glob('*'))
+    for f in l:
+        new_name = '.'.join([newchip] + f.split('.')[1:])
+        print(f)
+        os.rename(f, new_name)
+        print(new_name)

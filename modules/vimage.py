@@ -9,6 +9,8 @@ from skimage.exposure import cumulative_distribution, equalize_adapthist, rescal
 from skimage.feature import match_template, peak_local_max
 from skimage.transform import hough_circle, hough_circle_peaks
 import math, warnings
+
+import cv2
 # from clahe import clahe
 # from vpipes import _dict_matcher
 #*********************************************************************************************#
@@ -16,20 +18,30 @@ import math, warnings
 #           SUBROUTINES
 #
 #*********************************************************************************************#
+def _gen_img_fig(img, dpi = 96):
+
+    nrows, ncols = img.shape[0], img.shape[1]
+    fig = plt.figure(figsize=(ncols/dpi, nrows/dpi), dpi=dpi)
+    axes = plt.Axes(fig,[0,0,1,1])
+    fig.add_axes(axes)
+    axes.set_axis_off()
+    axes.imshow(img, cmap=plt.cm.gray)
+
+    return fig, axes
+#*********************************************************************************************#
 def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png='', dpi = 96):
     """A subroutine for debugging contrast adjustment"""
     bin_no = 150
     nrows, ncols = fig1.shape
-
     fig = plt.figure(figsize = (ncols/dpi/2, nrows/dpi/2), dpi = dpi)
-
     ax_img = plt.Axes(fig,[0,0,1,1])
-    ax_img.set_axis_off()
     fig.add_axes(ax_img)
+    ax_img.set_axis_off()
+    ax_img.imshow(fig3, cmap = 'gray')
 
     fig3[pic_canny] = fig3.max()*2
 
-    ax_img.imshow(fig3, cmap = 'gray')
+
 
     pic_cdf1, cbins1 = cumulative_distribution(fig1, bin_no)
     pic_cdf2, cbins2 = cumulative_distribution(fig2, bin_no)
@@ -86,103 +98,49 @@ def image_details(fig1, fig2, fig3, pic_canny, save = False,  chip_name ='', png
     plt.close('all'); plt.clf()
     # return hbins2, pic_cdf1
 #*********************************************************************************************#
-def image_details2(fig1, save = False,  chip_name ='', png='', dpi = 96):
+def gen_img_deets(img, name ='', savedir='', dpi = 96):
     """A subroutine for debugging contrast adjustment"""
-    bin_no = 150
-    nrows, ncols = fig1.shape
+    bin_no = 256
 
-    fig = plt.figure(figsize = (ncols/dpi/2, nrows/dpi/2), dpi = dpi)
+    _gen_img_fig(img)
 
-    ax_img = plt.Axes(fig,[0,0,1,1])
-    ax_img.set_axis_off()
-    fig.add_axes(ax_img)
-
-    ax_img.imshow(fig1, cmap = 'gray')
-
-    pic_cdf1, cbins1 = cumulative_distribution(fig1, bin_no)
-    # pic_cdf2, cbins2 = cumulative_distribution(fig2, bin_no)
-    # pic_cdf3, cbins3 = cumulative_distribution(fig3, bin_no)
-
-    # ax_hist1 = plt.axes([.05, .05, .25, .25])
-    # ax_cdf1 = ax_hist1.twinx()
-    ax_hist2 = plt.axes([.375, .05, .25, .25])
+    ax_hist2 = plt.axes([.100, .05, .25, .25])
     ax_cdf2 = ax_hist2.twinx()
-    # ax_hist3 = plt.axes([.7, .05, .25, .25])
-    # ax_cdf3 = ax_hist3.twinx()
 
-    fig1 = fig1.ravel()
-    # ; fig2r = fig2.ravel(); fig3r = fig3.ravel()
 
-    hist1, hbins1, __ = ax_hist1.hist(fig1r, bin_no, facecolor = 'r', normed = True)
-    # hist2, hbins2, __ = ax_hist2.hist(fig2r, bin_no, facecolor = 'b', normed = True)
-    # hist3, hbins3, __ = ax_hist3.hist(fig3r, bin_no, facecolor = 'g', normed = True)
-
-    # ax_hist1.patch.set_alpha(0);
-    ax_hist2.patch.set_alpha(0);
-    # ax_hist3.patch.set_alpha(0)
-
-    ax_cdf1.plot(cbins1, pic_cdf1, color = 'w')
-    # ax_cdf2.plot(cbins2, pic_cdf2, color = 'c')
-    # ax_cdf3.plot(cbins3, pic_cdf3, color = 'y')
-
+    img_ravelled = img.ravel()
+    hist1, hbins1, __ = ax_hist2.hist(img_ravelled, bin_no, facecolor = 'r', normed = True)
     bin_centers = 0.5*(hbins1[1:] + hbins1[:-1])
-    m, s = norm.fit(fig1r)
+    m, s = norm.fit(img_ravelled)
     pdf = norm.pdf(bin_centers, m, s)
+
+
+    pic_cdf1, cbins1 = cumulative_distribution(img, bin_no)
+    ax_cdf2.plot(cbins1, pic_cdf1, color = 'w')
+
     ax_hist2.plot(bin_centers, pdf, color = 'm')
-    # mean, var, skew, kurt = gamma.stats(fig2r, moments='mvsk')
-    # print(mean, var, skew, kurt)
-
-    # ax_hist1.set_title("Normalized", color = 'r')
-    # ax_hist2.set_title("CLAHE Equalized", color = 'b')
-    # ax_hist3.set_title("Contrast Stretched", color = 'g')
-
-    # ax_hist1.set_ylim([0,max(hist1)])
+    ax_hist2.patch.set_alpha(0);
     ax_hist2.set_ylim([0,max(hist1)])
-    # ax_hist3.set_ylim([0,max(hist3)])
 
-    ax_hist2.set_xlim([np.median(fig1)-0.1,np.median(fig1)+0.1])
-    # ax_hist2.set_xlim([np.median(fig2)-0.1,np.median(fig2)+0.1])
-    # ax_hist3.set_xlim([0,1])
-    #ax_cdf1.set_ylim([0,1])
-
+    ax_hist2.set_xlim([np.min(img),np.max(img)])
     ax_hist2.tick_params(labelcolor='tab:orange')
-
-    if save == True:
-        plt.savefig('../virago_output/' + chip_name
-                    + '/processed_images/' + png
-                    + '_image_details.png',
-                    dpi = dpi)
-    plt.show()
-
-    plt.close('all'); plt.clf()
-#*********************************************************************************************#
-def _gen_img_fig(img, dpi = 96):
-
-    nrows, ncols = img.shape[0], img.shape[1]
-    fig = plt.figure(figsize=(ncols/dpi, nrows/dpi), dpi=dpi)
-    axes = plt.Axes(fig,[0,0,1,1])
-    fig.add_axes(axes)
-    axes.set_axis_off()
-    axes.imshow(img, cmap=plt.cm.gray)
-
-    return fig, axes
-#*********************************************************************************************#
-def gen_img(image, name = 'default', savedir = '', dpi = 96, show = True):
-    # nrows, ncols = image.shape[0], image.shape[1]
-    # figsize = ((ncols/dpi), (nrows/dpi))
-    # fig = plt.figure(figsize = figsize, dpi = dpi)
-    # axes = plt.Axes(fig,[0,0,1,1])
-    # fig.add_axes(axes)
-    # axes.set_axis_off()
-    # axes.imshow(image, cmap = cmap)
-
-    _gen_img_fig(image)
-    if show == True:
-        plt.show()
 
     if savedir:
         plt.savefig('{}/{}.png'.format(savedir, name), dpi = dpi)
         print("\nFile generated: {}.png\n".format(name))
+    else:
+        plt.show()
+
+    plt.close('all'); plt.clf()
+#*********************************************************************************************#
+
+def gen_img(image, name='img_name', savedir='', dpi=96):
+    _gen_img_fig(image)
+    if savedir:
+        plt.savefig('{}/{}.png'.format(savedir, name), dpi = dpi)
+        print("\nFile generated: {}.png\n".format(name))
+    else:
+        plt.show()
 
     plt.close('all')
 #*********************************************************************************************#
@@ -203,16 +161,14 @@ def gen_img3D(im3D, cmap = "gray", step = 1):
     plt.show()
     plt.close('all')
 #*********************************************************************************************#
-def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
+def marker_finder(image, marker, thresh = 0.9):
     """This locates the "backwards-L" shapes in the IRIS images"""
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         warnings.warn(FutureWarning)##Numpy FFT Warning. This is Scikit-Image's problem
         if marker.ndim == 2:
-            print('2')
 
-            h, w = marker.shape
             locs = peak_local_max(match_template(image, marker, pad_input = True),
                                   min_distance = 775,
                                   threshold_rel = thresh,
@@ -221,9 +177,7 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
             )
 
         elif marker.ndim == 3:
-            print('3')
 
-            z, h, w = marker.shape
             locs = [peak_local_max(match_template(image, m, pad_input = True),
                                                   threshold_rel = thresh - 0.2,
                                                   exclude_border = False,
@@ -234,42 +188,41 @@ def marker_finder(image, marker, thresh = 0.9, gen_mask = False):
     locs = list(map(lambda x: tuple(x), locs))
     locs.sort(key = lambda coord: coord[1])
     print(locs)
-    if gen_mask == True:
-        mask = np.zeros(shape = image.shape, dtype = bool)
-
-        found_markers = np.empty([len(locs),h,w], dtype = 'float64')
-        bad_locs,bad_index = [],[]
-        for i, coords in enumerate(locs):
-            loc_y, loc_x = coords
-            height, width = h/2, w/2
-
-
-            # if loc_y < h:
-            #     height = loc_y
-            # if loc_x < w:
-            #     width = loc_x
-
-
-            marker_h = np.arange(loc_y - height, loc_y + height + 1, dtype = int)
-
-            marker_w = np.arange(loc_x - width,  loc_x + width + 1, dtype = int)
-
-
-            mask[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]] = True
-
-            # gen_img(image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]])
-            try:
-                found_markers[i] = image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]]
-            except ValueError:
-                bad_locs.append(coords)
-                bad_index.append(i)
-
-        locs = [coords for coords in locs if coords not in bad_locs]
-        found_markers = np.delete(found_markers, bad_index, axis=0)
-
-        return locs, mask, found_markers
+    return locs
+#*********************************************************************************************#
+def marker_masker(image, locs, marker):
+    if marker.ndim == 2:
+        h, w = marker.shape
     else:
-        return locs
+        z, h, w = marker.shape
+
+    mask = np.zeros(shape = image.shape, dtype = bool)
+
+    found_markers = np.empty([len(locs),h,w], dtype = 'float64')
+    bad_locs,bad_index = [],[]
+    for i, coords in enumerate(locs):
+        loc_y, loc_x = coords
+        height, width = h/2, w/2
+
+        marker_h = np.arange(loc_y - height, loc_y + height + 1, dtype = int)
+
+        marker_w = np.arange(loc_x - width,  loc_x + width + 1, dtype = int)
+
+
+        mask[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]] = True
+
+        # gen_img(image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]])
+        try:
+            found_markers[i] = image[marker_h[0]:marker_h[-1],marker_w[0]:marker_w[-1]]
+        except ValueError:
+            bad_locs.append(coords)
+            bad_index.append(i)
+
+    locs = [coords for coords in locs if coords not in bad_locs]
+    found_markers = np.delete(found_markers, bad_index, axis=0)
+
+    return mask, found_markers
+
 #*********************************************************************************************#
 def spot_finder(image, rad_range = (525, 651), Ab_spot = True):
     """Locates the antibody spot convalently bound to the SiO2 substrate
@@ -285,7 +238,7 @@ def spot_finder(image, rad_range = (525, 651), Ab_spot = True):
     print("Spot center coordinates (row, column, radius): {}\n".format(xyr))
     return xyr
 #*********************************************************************************************#
-def clahe_3D(img_stack, kernel_size = None, cliplim = 0.002):
+def clahe_3D(img_stack, kernel_size = [270,404], cliplim = 0.004):
     """Performs the contrast limited adaptive histogram equalization on the stack of images"""
     if img_stack.ndim == 2: img_stack = np.array([img_stack])
 
@@ -300,12 +253,31 @@ def clahe_3D(img_stack, kernel_size = None, cliplim = 0.002):
 
     return img3D_clahe
 #*********************************************************************************************#
+def cv2_clahe_3D(img3D, kernel_size = (8,8), cliplim = 156):
+    """Performs the contrast limited adaptive histogram equalization on the stack of images"""
+    if img3D.ndim == 2: img3D = np.array([img_stack])
+
+    clahe = cv2.createCLAHE(clipLimit=cliplim, tileGridSize=kernel_size)
+
+    img3D_clahe = np.empty_like(img3D, dtype=img3D.dtype)
+    for plane, img in enumerate(img3D):
+        img3D_clahe[plane] = clahe.apply(img)
+
+    return img3D_clahe
+#*********************************************************************************************#
 def rescale_3D(img_stack, perc_range = (2,98)):
     """Streches the histogram for all images in stack to further increase contrast"""
     img3D_rescale = np.empty_like(img_stack)
     for plane, image in enumerate(img_stack):
         p1,p2 = np.percentile(image, perc_range)
         img3D_rescale[plane] = rescale_intensity(image, in_range=(p1,p2))
+    return img3D_rescale
+#*********************************************************************************************#
+def cv2_rescale_3D(img_stack):
+    """Streches the histogram for all images in stack to further increase contrast"""
+    img3D_rescale = np.empty_like(img_stack)
+    for plane, image in enumerate(img_stack):
+        img3D_rescale[plane] = cv2.equalizeHist(image)
     return img3D_rescale
 #*********************************************************************************************#
 def masker_3D(image_stack, mask, filled = False, fill_val = 0):
@@ -402,18 +374,68 @@ def measure_shift(marker_dict, pass_num, spot_num, mode = 'baseline'):
 
     return tuple(mean_shift), overlay_toggle
 #*********************************************************************************************#
-def overlayer(overlay_dict, spot_num, pass_num, mean_shift, mode ='baseline'):
+def measure_shift_ORB(img1, img2, ham_thresh=10, show=False):
+    match_ct = 0
+    while match_ct <= 2:
+        #Convert images to 8-bit for OpenCV compatibility
+        img1=np.uint8(cv2.normalize(img1, None, 0, 255, cv2.NORM_MINMAX))
+        img2=np.uint8(cv2.normalize(img2, None, 0, 255, cv2.NORM_MINMAX))
+
+        # Initiate ORB detector
+        orb = cv2.ORB_create()
+
+        # find the keypoints and descriptors with ORB
+        kp1, des1 = orb.detectAndCompute(img1,None)
+        kp2, des2 = orb.detectAndCompute(img2,None)
+
+        # create BFMatcher object
+        bruteforce = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+        # Match descriptors
+        matches = bruteforce.match(des1,des2)
+        #Throw out all but best descriptors based on Hamming distance
+        matches = [match for match in matches if match.distance <= ham_thresh]
+
+        match_ct = len(matches)
+        #Increase threshold until a few matches are found
+        if match_ct <= 2:
+            ham_thresh += 2
+            print("No matches... increasing Hamming distance threshold to {}\n".format(ham_thresh))
+
+    print('Matched {} descriptors'.format(match_ct))
+
+    # Sort them in the order of their Hamming distance.
+    # matches = sorted(matches, key = lambda x:x.distance)
+
+    #Measure the pixel shift for each descriptor
+    shift_array = np.array([np.subtract(kp2[mat.trainIdx].pt, kp1[mat.queryIdx].pt) for mat in matches])
+
+    #Get the median value of all measured shifts and convert into a Row, Column format tuple
+
+
+    # Draw first 20 matches.
+    if show == True:
+        fig, ax = plt.subplots(nrows=1, ncols=1)
+        img3 = cv2.drawMatches(img1,kp1,img2,kp2,matches, None, flags=2)
+        # ax.axis('off')
+        # ax.set_title("Prescan / Postscan")
+
+        plt.imshow(img3),plt.show()
+
+    return (round(np.median(shift_array[:,1]),0), round(np.median(shift_array[:,0]),0))
+#*********************************************************************************************#
+def overlayer(bot_img, top_img, mean_shift):
+
+    nrows, ncols = bot_img.shape
 
     vshift, hshift = mean_shift
     vshift = int(math.ceil(vshift))
     hshift = int(math.ceil(hshift))
 
-    bot_img, top_img = _dict_matcher(overlay_dict, spot_num, pass_num, mode=mode)
-
-    nrows, ncols = bot_img.shape
-
-    try: bot_img
-    except NameError: print("Cannot overlay images")
+    try:
+        bot_img
+    except NameError:
+        print("Cannot overlay images")
     else:
         if vshift < 0:
             vshift = abs(vshift)

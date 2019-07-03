@@ -2,6 +2,7 @@ from __future__ import division
 from future.builtins import input
 from scipy.ndimage.filters import gaussian_filter
 # from scipy.ndimage.morphology import binary_dilation
+from scipy.spatial import cKDTree, Delaunay
 from scipy.spatial.distance import pdist, squareform
 
 from scipy.sparse import csr_matrix, csgraph
@@ -10,6 +11,7 @@ from skimage.filters import sobel_h, sobel_v
 from skimage.feature import peak_local_max
 from skimage.morphology import medial_axis, skeletonize
 from skimage.measure import label, regionprops, perimeter
+
 import pandas as pd
 import numpy as np
 import itertools as itt
@@ -42,6 +44,54 @@ def eccentricity(mu):
     C = (mu20 + mu02)**2
 
     return abs((A - B) / C)
+#*********************************************************************************************#
+def alpha_shape(points, alpha, only_outer=True):
+    """
+    Compute the alpha shape (concave hull) of a set of points.
+    :param points: np.array of shape (n,2) points.
+    :param alpha: alpha value.
+    :param only_outer: boolean value to specify if we keep only the outer border
+    or also inner edges.
+    :return: set of (i,j) pairs representing edges of the alpha-shape. (i,j) are
+    the indices in the points array.
+    """
+    assert points.shape[0] > 3, "Need at least four points"
+
+    def add_edge(edges, i, j):
+        """
+        Add a line between the i-th and j-th points,
+        if not in the list already
+        """
+        if (i, j) in edges or (j, i) in edges:
+            # already added
+            assert (j, i) in edges, "Can't go twice over same directed edge right?"
+            if only_outer:
+                # if both neighboring triangles are in shape, it's not a boundary edge
+                edges.remove((j, i))
+            return
+        edges.add((i, j))
+
+    tri = Delaunay(points)
+    edges = set()
+    # Loop over triangles:
+    # ia, ib, ic = indices of corner points of the triangle
+    for ia, ib, ic in tri.vertices:
+        pa = points[ia]
+        pb = points[ib]
+        pc = points[ic]
+        # Computing radius of triangle circumcircle
+        # www.mathalino.com/reviewer/derivation-of-formulas/derivation-of-formula-for-radius-of-circumcircle
+        a = np.sqrt((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2)
+        b = np.sqrt((pb[0] - pc[0]) ** 2 + (pb[1] - pc[1]) ** 2)
+        c = np.sqrt((pc[0] - pa[0]) ** 2 + (pc[1] - pa[1]) ** 2)
+        s = (a + b + c) / 2.0
+        area = np.sqrt(s * (s - a) * (s - b) * (s - c))
+        circum_r = a * b * c / (4.0 * area)
+        if circum_r < alpha:
+            add_edge(edges, ia, ib)
+            add_edge(edges, ib, ic)
+            add_edge(edges, ic, ia)
+    return edges
 #*********************************************************************************************#
 def bbox_verts(bbox):
     bbox0 = bbox[0] - 2
@@ -154,15 +204,17 @@ def density_normalizer(spot_df, spot_counter):
     normalized_density = []
     for x in range(1, spot_counter + 1):
         kp_df = spot_df.kparticle_density[(spot_df.spot_number == x)].reset_index(drop=True)
+        pass_count = len(kp_df)
+        print(kp_df)
         j = 0
-
-        while np.isnan(kp_df[j]):
-            print(kp_df)
-            j += 1
-            if (j == len(kp_df) - 1):
-                norm_val = [np.nan] * j
-                break
-            print("Invalid data for spot {}, scan {}; normalizing to scan {}".format(x,j,j+1))
+        if pass_count > 1:
+            while np.isnan(kp_df[j]):
+                print(kp_df)
+                j += 1
+                if (j == pass_count - 1):
+                    norm_val = [np.nan] * j
+                    break
+                print("Invalid data for spot {}, scan {}; normalizing to scan {}".format(x,j,j+1))
 
         norm_val = [kp_df[i] - kp_df[j] for i in range(0,len(kp_df))]
 
@@ -301,15 +353,15 @@ def get_bbox_pixels(bbox, max_z_img):
 
     return np.concatenate((top_bot.ravel(), lft_rgt.ravel()))
 #*********************************************************************************************#
-def _overlap_tol(pc_i, pc_j):
-    if pc_i == pc_j:
+def _overlap_tol(z_i, z_j):
+    if z_i == z_j:
         return 1.0
     else:
-        return 1/abs(pc_i - pc_j)
+        return 1/abs(z_i - z_j)
 #*********************************************************************************************#
-def _intersection_of_smaller(bb1, bb2):
+def _intersection_of_bbox(bb1, bb2, get_iou = False):
     """
-    Calculate the Intersection over Union (IoU) of two bounding boxes.
+    Calculate the Intersection over union or smaller of two bounding boxes.
 
     Parameters
     ----------
@@ -326,19 +378,25 @@ def _intersection_of_smaller(bb1, bb2):
     The amount the smaller bounding box intersects with the larger bounding box (IoS)
     as a float between 0 and 1
     """
-    bb1_r1, bb1_c1 = bb1[0]
-    bb1_r2, bb1_c2 = bb1[2]
-    assert (bb1_c1 < bb1_c2) & (bb1_r1 < bb1_r2)
+    bb1_toprow, bb1_leftcol = bb1[0]
+    bb1_bottomrow, bb1_rightcol = bb1[2]
+    assert (bb1_leftcol < bb1_rightcol) & (bb1_toprow < bb1_bottomrow)
 
-    bb2_r1, bb2_c1 = bb2[0]
-    bb2_r2, bb2_c2 = bb2[2]
-    assert (bb2_c1 < bb2_c2) & (bb2_r1 < bb2_r2)
+    bb2_toprow, bb2_leftcol = bb2[0]
+    bb2_bottomrow, bb2_rightcol = bb2[2]
+    assert (bb2_leftcol < bb2_rightcol) & (bb2_toprow < bb2_bottomrow)
 
-    # determine the coordinates of the intersection rectangle
-    col_left = max(bb1_c1, bb2_c1)
-    row_top = max(bb1_r1, bb2_r1)
-    col_right = min(bb1_c2, bb2_c2)
-    row_bottom = min(bb1_r2, bb2_r2)
+    ##check if one box is completely inside the other
+    if (  (bb1_rightcol <= bb2_rightcol)
+        & (bb1_leftcol >= bb2_leftcol)
+        & (bb1_toprow >= bb2_toprow)
+        & (bb1_bottomrow <= bb2_bottomrow)):
+        return 1.0
+    # determine the coordinates of the intersection box
+    col_left = max(bb1_leftcol, bb2_leftcol)
+    row_top = max(bb1_toprow, bb2_toprow)
+    col_right = min(bb1_rightcol, bb2_rightcol)
+    row_bottom = min(bb1_bottomrow, bb2_bottomrow)
 
     if (col_right < col_left) | (row_bottom < row_top):
         return 0.0
@@ -348,43 +406,56 @@ def _intersection_of_smaller(bb1, bb2):
     intersection_area = (col_right - col_left) * (row_bottom - row_top)
 
     # compute the area of both AABBs
-    bb1_area = (bb1_c2 - bb1_c1) * (bb1_r2 - bb1_r1)
-    bb2_area = (bb2_c2 - bb2_c1) * (bb2_r2 - bb2_r1)
+    bb1_area = (bb1_rightcol - bb1_leftcol) * (bb1_bottomrow - bb1_toprow)
+    bb2_area = (bb2_rightcol - bb2_leftcol) * (bb2_bottomrow - bb2_toprow)
 
+    combined_area = (bb1_area + bb2_area) - intersection_area
     #determine which bounding box is smaller
     #then divide by the smaller bounding box to get the amount
     #the smaller bounding box is enveloped by the larger one
-    if bb1_area > bb2_area:
-        ios = intersection_area / bb2_area
+    if get_iou == True:
+        return intersection_area / (combined_area + 0.000001)
+    elif bb1_area > bb2_area:
+        return intersection_area / bb2_area
     else:
-        ios = intersection_area / bb1_area
+        return intersection_area / bb1_area
 
-
-    assert (ios >= 0.0) & (ios <= 1.0)
-
-    return ios
 #*********************************************************************************************#
-def mark_overlaps(neighbor_tree_dist, shape_df):
-    pc_series = shape_df.perc_contrast
+def mark_overlaps(neighbor_tree_dist, shape_df, iou=False):
+    try:
+        z_series = shape_df.z_intensity
+    except AttributeError:
+        z_series = shape_df.area
+
     bbox_series = shape_df.bbox
 
     overlap_ix_list = []
 
     for i,j in neighbor_tree_dist:
-        pc_i, pc_j = pc_series[[i,j]]
+        z_i,z_j = z_series[[i,j]]
         bb_i, bb_j = bbox_series[[i,j]]
 
-        overlap = _overlap_tol(pc_i, pc_j)
-        ios = _intersection_of_smaller(bb_i, bb_j)
+        overlap = _overlap_tol(z_i, z_j)
+        ios = _intersection_of_bbox(bb_i, bb_j, get_iou=iou)
 
         if ios >= overlap:
-            # print(iou, overlap)
-            if pc_i < pc_j:
+
+            if z_i < z_j:
                 overlap_ix_list.append(i)
             else:
                 overlap_ix_list.append(j)
 
     return overlap_ix_list
+#*********************************************************************************************#
+def remove_overlapping_objs(shape_df, radius=20):
+
+    neighbor_tree = cKDTree(np.array(shape_df.centroid.tolist()))
+
+    neighbor_tree_dist = neighbor_tree.query_pairs(radius, output_type='ndarray')
+
+    overlap_ix = mark_overlaps(neighbor_tree_dist, shape_df)
+
+    return shape_df.drop(overlap_ix).reset_index(drop=True)
 #*********************************************************************************************#
 def spot_remover(spot_df, contrast_df, vcount_dir, iris_path, quarantine_img = False):
     excise_toggle = input("Would you like to remove any spots from the analysis? (y/[n])\t")
@@ -424,7 +495,7 @@ def spot_remover(spot_df, contrast_df, vcount_dir, iris_path, quarantine_img = F
                 os.makedirs('bad_imgs')
 
             bad_imgs = [img for sublist in
-                       [glob.glob('*.'+vpipes.three_digs(spot)+'.*.tif') for spot in excise_spots]
+                       [glob.glob('*.' + str(spot).zfill(3) + '.*.tif') for spot in excise_spots]
                        for img in sublist
             ]
             for img in bad_imgs:

@@ -280,13 +280,11 @@ def generate_histogram(avg_histogram_df, pass_counter, chip_name, metric_str, hi
 
     sdm_histo_df = avg_histogram_df.filter(regex='sdm').rename(columns=lambda x: x[:-4])
 
-    smooth_max = np.max(np.max(smooth_histo_df))
-
-    sdm_max = np.max(np.max(sdm_histo_df))
-
-    if np.isnan(sdm_max): sdm_max = 0
-
-    histo_max = np.round(smooth_max+sdm_max,2)
+    # smooth_max = np.max(np.max(smooth_histo_df))
+    # sdm_max = np.max(np.max(sdm_histo_df))
+    # if np.isnan(sdm_max):
+    #     sdm_max = 0
+    # histo_max
 
     min_cont, max_cont = metric_str.split("-")
 
@@ -304,10 +302,14 @@ def generate_histogram(avg_histogram_df, pass_counter, chip_name, metric_str, hi
         sns.set_style('darkgrid')
         fig = plt.figure(figsize=(8,6))
         ax = fig.add_subplot(111)
-        # sns.set(style='ticks')
+        # ax.set_xscale('log')
+        sns.set(style='ticks')
 
         c = 0
-        for j, col in enumerate(smooth_histo_df):
+        max_list = []
+        for col in smooth_histo_df:
+            max_list.append(np.max(smooth_histo_df[col]))
+            histo_max = np.ceil(max(max_list))
             splitcol = col.split("_")
             if len(splitcol) == 2:
                 spot_type, pass_num = splitcol
@@ -316,11 +318,11 @@ def generate_histogram(avg_histogram_df, pass_counter, chip_name, metric_str, hi
             pass_num = int(pass_num)
             if pass_num == i:
                 ax.errorbar(x=bin_array,
-                             y=smooth_histo_df[col],
-                             yerr=sdm_histo_df[col],
-                             color = vhf_colormap[c],
-                             label = None,
-                             lw = 0,
+                            y=smooth_histo_df[col],
+                            yerr=sdm_histo_df[col],
+                            color = vhf_colormap[c],
+                            label = None,
+                            lw = 0,
                             **line_settings
                 )
                 ax.step(x=bin_array,
@@ -570,7 +572,7 @@ def generate_timeseries(spot_df, averaged_df, metric_window, mAb_dict,
 #     plt.close('all')
 #*********************************************************************************************#
 def iris_barplot_gen(spot_df, pass_counter, metric_window, chip_name, version,
-                     savedir='', plot_3sigma=False, neg_ctrl_str='8G5|MOUSE IGG|muIgG|GFP'):
+                     savedir='', plot_3sigma=False, neg_ctrl_str='8G5|MOUSE IGG|muIgG|GFP|MIGG'):
     """
     Generates a barplot for the dataset.
     Most useful for before and after scans (pass_counter == 2)
@@ -665,7 +667,7 @@ def filo_image_gen(shape_df, pic1, pic2, pic3,
         ax1.scatter(v2[:,1], v2[:,0], color='y', marker='+')
 
     for t in filo_df.index.values:
-        ax1.text(y=filo_df.centroid[t][0], x=filo_df.centroid[t][1], s=str(round(filo_df.filo_lengths[t],2)),
+        ax1.text(y=filo_df.centroid[t][0], x=filo_df.centroid[t][1], s=str(round(filo_df.fiber_length[t],2)),
                  color='y', fontsize='9', horizontalalignment='right')
 
     for i in shape_df.index:
@@ -776,7 +778,7 @@ def chipArray_graph(spot_df, chip_name='IRIS chip',
 
         dz_pre = np.array(prescan_df.kparticle_density)
         prebar = ax.bar3d(xpos_bar, ypos_bar, zpos, dx, dy, dz_pre,
-                         color=color, edgecolor='k', label=None, alpha=0.15)
+                         color='k', edgecolor='k', label=None, alpha=0.15)
 
         prebar = _bugfix_bar3d(prebar)
 
@@ -789,7 +791,7 @@ def chipArray_graph(spot_df, chip_name='IRIS chip',
             ypos_bar = ypos - offset
 
             bar = ax.bar3d(xpos_bar, ypos_bar, zpos, dx, dy, dz,
-                           color=color, edgecolor='k', label=spot, alpha=0.75)
+                           color='red', edgecolor='k', label=spot, alpha=0.75)
 
             bar = _bugfix_bar3d(bar)
 
@@ -822,7 +824,7 @@ def chipArray_graph(spot_df, chip_name='IRIS chip',
     plt.show()
     plt.clf()
 #*********************************************************************************************#
-def fluor_overlayer(fluor_df, g_img, r_img=np.array([]),b_img=np.array([]), show_particles=False):
+def fluor_overlayer(valid_shape_df, g_img, r_img=np.array([]),b_img=np.array([]), show_particles=False):
     """
     Creates an overlay of the fluorescent images on the visible light images.
     Fluorescent signal appears green, whilst visible light signal is red.
@@ -837,26 +839,30 @@ def fluor_overlayer(fluor_df, g_img, r_img=np.array([]),b_img=np.array([]), show
     fig, axes = _gen_img_fig(img_overlay)
 
     if show_particles == True:
-        for val in fluor_df.index.values:
-            bbox,norm_int,centroid,chan = fluor_df[[ 'bbox','fl_intensity','centroid','channel']].loc[val]
+        for ix in valid_shape_df.index.values:
+            centroid,bbox,fl_int,chan  = valid_shape_df[['centroid','bbox','fl_intensity','channel']].loc[ix]
 
             lowleft_x = bbox[0][1]
             lowleft_y = bbox[0][0]
 
             box_w = bbox[2][1] - lowleft_x
             box_h = bbox[2][0] - lowleft_y
-            if chan == 'A':
-                box_color = 'y'
-                align = 'left'
+
+            if (not np.isnan(fl_int)) & (chan == 'V'):
+                color = 'c'
+                alpha=0.7
+            elif np.isnan(fl_int):
+                color = 'y'
+                alpha = 0.7
             else:
-                box_color = 'm'
-                align = 'right'
+                color = 'm'
+                alpha=0.7
             particle_box = plt.Rectangle((lowleft_x-1,lowleft_y-2), box_w, box_h,
-                                          fill=False, color=box_color, alpha=0.75)
+                                          fill=False, color=color, alpha=0.8)
             axes.add_patch(particle_box)
 
-            axes.text(y=centroid[0], x=centroid[1], s=str(round(norm_int,1)),
-                     color='c', fontsize='6', alpha = 0.8, horizontalalignment=align)
+            axes.text(y=centroid[0], x=centroid[1], s='{}: {}'.format(ix,fl_int),
+                     color=color, fontsize='7.5', alpha =alpha)
 
 
 #*********************************************************************************************#

@@ -5,18 +5,47 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from skimage import io as skio
-from skimage.external.tifffile import TiffWriter
+from skimage.external.tifffile import TiffWriter, TiffFile
+
 import os, json, math, warnings, sys, glob, zipfile, re
 #*********************************************************************************************#
 #
 #           SUBROUTINES
 #
 #*********************************************************************************************#
-def three_digs(number):
-    if not type(number) is str:
-        number = str(number)
-
-    return '0'*(3 - len(number)) + number
+# def three_digs(number):
+#     if not type(number) is str:
+#         number = str(number)
+#
+#     return '0'*(3 - len(number)) + number
+#*********************************************************************************************#
+def find_file(name, path):
+    for root, dirs, files in os.walk(path):
+        if name in files:
+            return os.path.join(root, name)
+#*********************************************************************************************#
+def coord_parser(coords):
+    x,y = coords.split(',')
+    return tuple([int(x),int(y)])
+#*********************************************************************************************#
+def get_vdata_dict(exo_toggle, version):
+    vdata_dict = {'img_name'        : 'N/A',
+                  'spot_type'       : 'N/A',
+                  'area_sqmm'       : 0,
+                  'valid_shift'      : 'N/A',
+                  'overlay_mode'    : 'N/A',
+                  'classifier_median':'N/A',
+                  'total_valid_particles' : 0,
+                  'fluor_particles_A'  : np.nan,
+                  'fluor_particles_C'  : np.nan,
+                  'pos_plane'       : 'N/A',
+                  'exo_toggle'      : exo_toggle,
+                  'spot_coords'     : 'N/A',
+                  'marker_locs'     : 'N/A',
+                  'validity'        : False,
+                  'version'         : version
+    }
+    return vdata_dict
 #*********************************************************************************************#
 def xml_parser(xml_file):
     """XML file parser, reads the turns the chipFile into a list of dictionaries"""
@@ -65,9 +94,46 @@ def chipFile_reader(chipFile, remove_jargon = True):
                 new_name = mAb_name
         mAb_dict[q + 1] = new_name, xloc, yloc, spot_height
 
-    mAb_dict_rev = {val[0]: key for key, val in mAb_dict.items()}
+    # mAb_dict_rev = {val[0]: key for key, val in mAb_dict.items()}
 
-    return mAb_dict, mAb_dict_rev
+    return mAb_dict
+#*********************************************************************************************#
+def get_chip_params(chipFile, Ab_spot_mode):
+    params_dict = {}
+    meta_dict = chipFile[0]
+    if meta_dict['chipversion'] == '4':
+        print("Exoviewer images\n")
+        if Ab_spot_mode == True:
+            params_dict['cv_cutoff'] = 0.5
+        else:
+            params_dict['cv_cutoff'] = 0.75
+        params_dict['cam_micron_per_pix'] = 3.45 * 2
+        params_dict['mag'] = 44
+        params_dict['exo_toggle']  = True
+        params_dict['IRISmarker'] = IRISmarker_exo
+        params_dict['perc_range'] = (3,97)
+        # filohist_range = (0,150)
+
+    elif meta_dict['chipversion'] == '5':
+        print("In-liquid chip\n")
+        params_dict['cam_micron_per_pix'] = 5.86
+        params_dict['mag'] = 40
+        params_dict['exo_toggle']  = False
+        params_dict['cv_cutoff'] = 0.01
+        params_dict['IRISmarker'] = IRISmarker_liq
+        params_dict['perc_range'] = (3,97)
+        # filohist_range = (0,10)
+    else:
+        raise ValueError("Unknown IRIS chip version\n")
+    # else:
+    #     print("\nNon-standard chip\n")
+    #     params_dict['cam_micron_per_pix'] = 3.45
+    #     params_dict['mag'] = 44
+    #     params_dict['exo_toggle'] = True
+    #     params_dict['cv_cutoff'] = 0.1
+    #     params_dict['IRISmarker'] = IRISmarker_exo
+    #     params_dict['perc_range'] = (3,97)
+    return params_dict
 #*********************************************************************************************#
 def sample_namer(iris_path):
     if sys.platform == 'win32':
@@ -137,9 +203,21 @@ def sample_namer(iris_path):
 #         write_vdata(vcount_dir, missing_scan, missing_vals)
 #
 #         print("Writing blank data files for {}".format(missing_scan))
+#*********************************************************************************************#
+def load_image(img_stack, tiff_toggle):
+    if tiff_toggle == True:
+        for file in img_stack:
+            with TiffFile(file) as tif:
+                pages = range(tif.__len__())
+                pic3D = tif.asarray(key=pages)
+    else:
+        scan_collection = imread_collection(img_stack)
+        pic3D = np.array([pic for pic in scan_collection], dtype='uint16')
 
+    return pic3D
 
 #*********************************************************************************************#
+
 def mirror_finder(pgm_list):
     regex = re.compile('000\.000')
     mirror_list = list(filter(regex.search, pgm_list))

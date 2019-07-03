@@ -47,3 +47,6 @@ def print_logo():
     VIRAGO Interferometric Resonance Analysis of Globular Objects
     Copyright 2017-2018 Developer Auxilliary Systems, Ltd.
     """)
+
+if __name__ == '__main__':
+    print_logo()
